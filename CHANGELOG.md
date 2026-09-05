@@ -12,6 +12,16 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.3.1 — fixes
+
+- **The version number now actually appears.** 1.2.0 defined it but never
+  rendered it, so Setup showed nothing. It sits at the foot of "About the
+  data".
+- **"About the data" now reports the real deck.** It had been counting the
+  173-word fallback list built into the app rather than the loaded level, and
+  claimed progress was saved to a Claude account rather than to the device and
+  your Netlify site.
+
 ## 1.3.0 — usage notes for confusable words
 
 - **Words that share an English meaning now explain themselves.** これ, それ
