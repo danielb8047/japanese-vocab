@@ -12,6 +12,22 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.3.0 — usage notes for confusable words
+
+- **Words that share an English meaning now explain themselves.** これ, それ
+  and あれ all glossed as "this/that one" with nothing to distinguish them.
+  116 N5 words now carry a hand-written **WHEN TO USE IT** note covering the
+  distance system (こそあど), giving and receiving (あげる / くれる / もらう),
+  transitive and intransitive pairs (開く / 開ける), what you wear on which
+  part of the body, ある versus いる, and family terms that differ for your own
+  family and someone else's.
+- Where no hand-written note exists, cards list **not to be confused with**
+  and name the siblings, so the existence of a distinction is at least visible.
+- Fixed: 大変 and たいへん were listed as two separate words, as were おいしい /
+  美味しい and たくさん / 沢山. 358 of these kana-and-kanji pairs were one word
+  counted twice; they are now merged, keeping whichever spelling the
+  best-curated list used.
+
 ## 1.2.0 — cross-referenced vocabulary
 
 - Deck rebuilt from **three** independent JLPT lists rather than one. 8,528

@@ -132,7 +132,7 @@ rather than trusting any one of them.
 
 | Level | Words | Pitch from real data | All three lists agree |
 |---|---|---|---|
-| N5 | 960 | 91% | |
+| N5 | 921 | 91% | |
 | N4 | 838 | 87% | 94% of the deck overall |
 | N3 | 1,981 | 91% | |
 | N2 | 1,976 | 88% | |
@@ -148,6 +148,13 @@ estimated.
 **Homophones carry context.** あく appears as 開く, 空く, 悪 and 灰; each card
 notes the sense so they can be told apart. Context is only added where it
 actually distinguishes.
+
+**Confusable words carry usage notes.** Words that share an English gloss are
+often not interchangeable — これ / それ / あれ differ by distance from the
+speaker, 着る / 履く / かぶる by which part of the body. Cards for these show a
+**WHEN TO USE IT** note, hand-written rather than generated, since the
+distinction is exactly what a keyword rule cannot see. Where no note exists,
+the card names the words it might be confused with.
 
 **Example sentences** appear on reveal for most words, from OpenJLPT.
 

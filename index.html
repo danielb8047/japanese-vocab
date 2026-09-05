@@ -594,7 +594,7 @@ function grade(card, g) {
 
 const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE));
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
 // Level decks are separate files so a phone only downloads what it studies.
@@ -1606,6 +1606,37 @@ function App() {
                     <div style={{ fontFamily: SANS, fontSize: 20, color: C.ink, fontWeight: 500 }}>
                       {current.en}
                     </div>
+                    {current.note && (
+                      <div
+                        className="mt-3 rounded-lg px-3 py-2 text-left"
+                        style={{ background: "rgba(44,66,101,.07)", border: `1px solid ${C.paperEdge}` }}
+                      >
+                        <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "0.14em", color: C.indigo }}>
+                          WHEN TO USE IT
+                        </div>
+                        <div className="mt-1" style={{ fontFamily: SANS, fontSize: 13, color: C.ink, lineHeight: 1.5 }}>
+                          {current.note}
+                        </div>
+                      </div>
+                    )}
+
+                    {current.cf && current.cf.length > 0 && (
+                      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                        <span style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>
+                          not to be confused with
+                        </span>
+                        {current.cf.map((x, i) => (
+                          <span
+                            key={i}
+                            className="rounded-full px-2 py-0.5"
+                            style={{ border: `1px solid ${C.paperEdge}`, fontFamily: JP_FACE, fontSize: 14, color: C.indigo }}
+                          >
+                            <Furigana src={x.jp} size={14} />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {current.ex && (
                       <div className="mt-3">
                         <div style={{ fontFamily: JP_FACE, fontSize: 16, color: C.indigo }}>
