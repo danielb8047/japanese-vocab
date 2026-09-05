@@ -77,6 +77,16 @@ Last write wins, by timestamp. Reviewing on two devices simultaneously while
 offline will lose one side's session. For single-user daily use this is fine;
 per-card merging would be the fix if it ever bites.
 
+## Versions
+
+The app shows its version under **Setup → VERSION**. `CHANGELOG.md` lists what
+changed in each one.
+
+Downloads are named `japanese-vocab-vX.Y.Z.zip` so you can tell them apart.
+The files *inside* keep fixed names — `index.html`, `cats.js`, `words-n5.js`
+and so on — because the app and service worker load those exact paths.
+Renaming them breaks the app, so version the download, never the contents.
+
 ## Updating the app after it's installed
 
 Push to your Git branch. Netlify rebuilds and redeploys automatically, usually
@@ -117,33 +127,47 @@ launch, provided sync is on.
 
 ## The vocabulary deck
 
-`cats.js` and `words-n5.js` … `words-n1.js` hold 7,689 words across all five
-JLPT levels, built from JMdict-derived sources:
+8,528 words, built by cross-referencing three independent JLPT reconstructions
+rather than trusting any one of them.
 
-| Level | Words | With pitch accent |
-|---|---|---|
-| N5 | 661 | 589 |
-| N4 | 627 | ~90% |
-| N3 | 2,133 | ~90% |
-| N2 | 1,628 | ~90% |
-| N1 | 2,640 | ~90% |
+| Level | Words | Pitch from real data | All three lists agree |
+|---|---|---|---|
+| N5 | 960 | 91% | |
+| N4 | 838 | 87% | 94% of the deck overall |
+| N3 | 1,981 | 91% | |
+| N2 | 1,976 | 88% | |
+| N1 | 3,079 | 89% | |
 
-Only the level you are studying is downloaded — N5 is about 90 KB. Switching
-level in the app fetches that level's file once and caches it.
+Only the level you are studying downloads.
 
-Pitch accents come from Kanjium rather than being guessed, and words without
-an entry show no contour instead of a wrong one. Furigana alignment is
-per-kanji, so 図書館 renders with と, しょ and かん over the right characters.
+**Pitch accent** comes from Kanjium wherever it has an entry. Where it does
+not, a rule-based estimate is used and the card shows an **ESTIMATED** badge,
+so a guess is never mistaken for real data. Roughly one word in ten is
+estimated.
 
-To rebuild or re-categorise the deck, see `vendor/README.md`.
+**Homophones carry context.** あく appears as 開く, 空く, 悪 and 灰; each card
+notes the sense so they can be told apart. Context is only added where it
+actually distinguishes.
+
+**Example sentences** appear on reveal for most words, from OpenJLPT.
+
+**No duplicates.** Cards are unique on written form, reading and meaning.
+Okurigana variants of the same word are collapsed to the standard spelling,
+while genuinely different words that share a reading stay separate.
+
+To rebuild or re-categorise, see `vendor/README.md`.
 
 ## Known limits
 
-- Pitch accents are real data now, but Kanjium lists alternatives for some
-  words and the build takes the first. JLPT levels are a reconstruction — no
-  official list has been published since 2010.
-- Category assignment is keyword-based and imperfect; unusual glosses land in
-  "Ideas & everything else".
+- Levels are a cross-referenced best guess. The JLPT has published no official
+  list since 2010, and about 6% of words have only one or two lists behind
+  them; each card records how many agreed.
+- Estimated pitch accents follow broad rules (loanwords on the third mora from
+  the end, i-adjectives on the penultimate) and will be wrong for irregular
+  words. The badge tells you when to check OJAD.
+- Category assignment is keyword-based. Around 12% of words land in "Ideas &
+  everything else" — usually because their gloss is unusual, not because they
+  have no home.
 - Safari blocks audio until you tap something, so the first card may be silent.
 - JSX compiles in the browser at startup, costing about a second on first load.
   Run it through Vite if that ever matters.

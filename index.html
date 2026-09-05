@@ -594,6 +594,7 @@ function grade(card, g) {
 
 const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE));
 
+const APP_VERSION = "1.2.0";
 const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
 // Level decks are separate files so a phone only downloads what it studies.
@@ -765,6 +766,7 @@ function validate(raw, level) {
       kana: r.kana.trim(),
       en: r.en.trim(),
       pitch,
+      ps: "generated",
       level,
       fetched: true,
     });
@@ -885,7 +887,7 @@ function Furigana({ src, size = 64, showRuby = true }) {
 
 /* The signature element: an OJAD-style accent contour that traces itself
    in time with the audio. */
-function PitchContour({ kana, drop, traceKey }) {
+function PitchContour({ kana, drop, traceKey, source }) {
   const mo = useMemo(() => moras(kana), [kana]);
   const n = mo.length;
   const pat = pitchPattern(drop, n);
@@ -956,11 +958,20 @@ function PitchContour({ kana, drop, traceKey }) {
         </text>
       </svg>
       <div
-        className="mt-1"
+        className="mt-1 text-center"
         style={{ fontFamily: SANS, fontSize: 11, color: C.muted, letterSpacing: "0.02em" }}
       >
         {PITCH_NAME(drop, n)}
       </div>
+      {source === "generated" && (
+        <div
+          className="mt-1 rounded-full px-2 py-0.5"
+          style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "0.1em",
+                   color: C.gold, border: `1px solid ${C.gold}` }}
+        >
+          ESTIMATED
+        </div>
+      )}
     </div>
   );
 }
@@ -1550,14 +1561,20 @@ function App() {
             >
               <Furigana src={current.jp} size={58} />
 
-              {state.settings.showPitch && current.pitch >= 0 && (
-                <div className="mt-5">
-                  <PitchContour kana={current.kana} drop={current.pitch} traceKey={traceKey} />
+              {current.ctx && (
+                <div className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
+                  in the sense of “{current.ctx}”
                 </div>
               )}
-              {state.settings.showPitch && current.pitch < 0 && (
-                <div className="mt-4" style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>
-                  Pitch accent not in the dataset for this word
+
+              {state.settings.showPitch && current.pitch >= 0 && (
+                <div className="mt-5">
+                  <PitchContour
+                    kana={current.kana}
+                    drop={current.pitch}
+                    traceKey={traceKey}
+                    source={current.ps}
+                  />
                 </div>
               )}
 
@@ -1589,6 +1606,16 @@ function App() {
                     <div style={{ fontFamily: SANS, fontSize: 20, color: C.ink, fontWeight: 500 }}>
                       {current.en}
                     </div>
+                    {current.ex && (
+                      <div className="mt-3">
+                        <div style={{ fontFamily: JP_FACE, fontSize: 16, color: C.indigo }}>
+                          {current.ex.ja}
+                        </div>
+                        <div className="mt-1" style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
+                          {current.ex.en}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <button
