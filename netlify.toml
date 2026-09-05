@@ -1,0 +1,30 @@
+[build]
+  publish = "."
+  # Stamps each deploy into the service worker so installed devices notice it.
+  command = "sed -i \"s/__BUILD_ID__/${COMMIT_REF:-$(date +%s)}/\" sw.js"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# The service worker and app shell must never be cached by the CDN or browser,
+# or a deploy cannot reach devices that already have the app installed.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"

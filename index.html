@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>語彙 — Japanese Vocabulary</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="語彙">
+<meta name="theme-color" content="#131E33">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { background: #131E33; margin: 0; }
+  body { -webkit-tap-highlight-color: transparent; }
+  #root { padding-top: env(safe-area-inset-top); }
+  #syncwrap {
+    position: sticky; bottom: 0; background: #131E33;
+    border-top: 1px solid #33456B;
+    padding: 8px 20px calc(8px + env(safe-area-inset-bottom));
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #syncbar { color: #7787A3; flex: 1; }
+  #updatebar {
+    display: none; position: sticky; bottom: 0; z-index: 20;
+    background: #22314F; border-top: 1px solid #B39653;
+    padding: 10px 20px; align-items: center; justify-content: space-between; gap: 12px;
+    font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #EEEAE0;
+  }
+  #updatebtn {
+    color: #B39653; border: 1px solid #B39653; border-radius: 999px;
+    padding: 4px 14px; background: none; font-size: 10px; letter-spacing: .12em;
+  }
+  #syncbtn {
+    color: #8FB0D6; border: 1px solid #33456B; border-radius: 999px;
+    padding: 4px 12px; background: none; font-size: 10px; letter-spacing: .12em;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="updatebar">
+  <span>A new version is available.</span>
+  <button id="updatebtn">UPDATE</button>
+</div>
+<div id="syncwrap">
+  <span id="syncbar">Sync off — this device only</span>
+  <button id="syncbtn">SYNC</button>
+</div>
+
+<script>/* ------------------------------------------------------------------ */
+/*  STORAGE                                                            */
+/*  localStorage is the source of truth for reads, so the app is       */
+/*  instant and works with no connection. Writes also push to Netlify  */
+/*  Blobs via /api/progress, debounced. On startup we pull and keep    */
+/*  whichever copy is newer.                                           */
+/* ------------------------------------------------------------------ */
+(function () {
+  const SYNC_KEY = "jpvocab:syncphrase";
+  const STAMP = "jpvocab:updatedAt";
+  const KEYS = ["jpvocab:v1", "jpvocab:bank:v1"];
+
+  const phrase = () => localStorage.getItem(SYNC_KEY) || "";
+  const stamp = () => Number(localStorage.getItem(STAMP) || 0);
+
+  const status = (text, tone) => {
+    const el = document.getElementById("syncbar");
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = tone === "bad" ? "#A85449" : tone === "good" ? "#7A9068" : "#7787A3";
+  };
+
+  // Everything the app owns, as one blob.
+  const snapshot = () => {
+    const out = {};
+    for (const k of KEYS) {
+      const v = localStorage.getItem(k);
+      if (v !== null) out[k] = v;
+    }
+    return JSON.stringify(out);
+  };
+
+  const applySnapshot = (text) => {
+    const obj = JSON.parse(text);
+    for (const k of KEYS) if (typeof obj[k] === "string") localStorage.setItem(k, obj[k]);
+  };
+
+  async function pull() {
+    if (!phrase()) return;
+    status("Checking for saved progress…");
+    try {
+      const res = await fetch("/api/progress", { headers: { "x-sync-key": phrase() } });
+      const rec = await res.json();
+      if (!res.ok) return status(rec.error || "Sync unavailable", "bad");
+      if (rec.data && rec.updatedAt > stamp()) {
+        applySnapshot(rec.data);
+        localStorage.setItem(STAMP, String(rec.updatedAt));
+        status("Loaded newer progress from the cloud", "good");
+      } else {
+        status("Up to date", "good");
+      }
+    } catch {
+      status("Offline — using this device's copy");
+    }
+  }
+
+  let timer = null;
+  function schedulePush() {
+    if (!phrase()) return;
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const updatedAt = Date.now();
+      try {
+        const res = await fetch("/api/progress", {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-sync-key": phrase() },
+          body: JSON.stringify({ data: snapshot(), updatedAt }),
+        });
+        const rec = await res.json();
+        if (!res.ok) return status(rec.error || "Couldn't sync", "bad");
+        localStorage.setItem(STAMP, String(updatedAt));
+        status("Synced " + new Date(updatedAt).toLocaleTimeString(), "good");
+      } catch {
+        status("Offline — will sync when you're back", "bad");
+      }
+    }, 2000);
+  }
+
+  // The interface the app expects, unchanged from the artifact.
+  window.storage = {
+    async get(key) {
+      const v = localStorage.getItem(key);
+      return v === null ? null : { key, value: v, shared: false };
+    },
+    async set(key, value) {
+      localStorage.setItem(key, value);
+      schedulePush();
+      return { key, value, shared: false };
+    },
+    async delete(key) {
+      localStorage.removeItem(key);
+      schedulePush();
+      return { key, deleted: true, shared: false };
+    },
+    async list(prefix = "") {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k.startsWith(prefix)) keys.push(k);
+      }
+      return { keys, prefix, shared: false };
+    },
+  };
+
+  // Push once more on the way out, so a session isn't lost to the debounce.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && phrase()) {
+      clearTimeout(timer);
+      const body = JSON.stringify({ data: snapshot(), updatedAt: Date.now() });
+      // keepalive lets the request outlive the page.
+      fetch("/api/progress", {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-sync-key": phrase() },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  });
+  window.addEventListener("online", () => schedulePush());
+
+  window.__sync = {
+    phrase,
+    async setPhrase(p) {
+      localStorage.setItem(SYNC_KEY, p);
+      localStorage.setItem(STAMP, "0");
+      await pull();
+      schedulePush();
+    },
+    clearPhrase() {
+      localStorage.removeItem(SYNC_KEY);
+      status("Sync off — this device only");
+    },
+    pull,
+  };
+
+  window.__syncReady = pull();
+})();
+</script>
+
+<script>
+document.getElementById("syncbtn").addEventListener("click", () => {
+  const cur = window.__sync.phrase();
+  if (cur) {
+    if (confirm("Sync is on.\n\nTurn it off on this device? Your progress stays here and in the cloud.")) {
+      window.__sync.clearPhrase();
+    }
+    return;
+  }
+  const p = prompt(
+    "Enter a sync phrase.\n\nUse the same phrase on every device to share progress. " +
+    "It is the only thing protecting your data, so make it long and unguessable — " +
+    "four or five random words works well.\n\nThere is no way to recover it if you forget it."
+  );
+  if (p && p.trim().length >= 10) {
+    window.__sync.setPhrase(p.trim()).then(() => location.reload());
+  } else if (p !== null) {
+    alert("That phrase is too short — use at least 10 characters.");
+  }
+});
+</script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* ------------------------------------------------------------------ */
+/*  PALETTE — 藍染 (indigo-dyed cloth) + 和紙 (washi paper)             */
+/* ------------------------------------------------------------------ */
+const C = {
+  ink: "#131E33",
+  inkSoft: "#1C2A45",
+  panel: "#22314F",
+  line: "#33456B",
+  paper: "#EEEAE0",
+  paperEdge: "#DCD5C7",
+  indigo: "#2C4265",
+  indigoLt: "#8FB0D6",
+  moss: "#7A9068",
+  brick: "#A85449",
+  gold: "#B39653",
+  muted: "#7787A3",
+};
+
+const JP_FACE =
+  "'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP','Songti SC',serif";
+const MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+const SANS =
+  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+/* ------------------------------------------------------------------ */
+/*  VOCABULARY                                                         */
+/*  jp uses furigana markup: 食[た]べ物[もの]                            */
+/*  pitch = Tokyo-standard drop position (0 = heiban / no drop)         */
+/*  NOTE: pitch values are entered by hand and should be checked        */
+/*  against OJAD (www.gavo.t.u-tokyo.ac.jp/ojad) before you trust them. */
+/* ------------------------------------------------------------------ */
+const CATS = [
+  { id: "num", jp: "数字", en: "Numbers" },
+  { id: "col", jp: "色", en: "Colours" },
+  { id: "ppl", jp: "人・家族", en: "People & family" },
+  { id: "tim", jp: "時間", en: "Time & days" },
+  { id: "dir", jp: "方向・位置", en: "Directions & position" },
+  { id: "ani", jp: "動物", en: "Animals" },
+  { id: "foo", jp: "食べ物", en: "Food & drink" },
+  { id: "bod", jp: "体", en: "The body" },
+  { id: "pla", jp: "場所", en: "Places" },
+  { id: "nat", jp: "自然", en: "Nature & weather" },
+  { id: "obj", jp: "身の回り", en: "Everyday things" },
+  { id: "tra", jp: "乗り物", en: "Getting around" },
+];
+
+const WORDS = [
+  // 数字
+  ["num", "一[いち]", "いち", "one", 2],
+  ["num", "二[に]", "に", "two", 1],
+  ["num", "三[さん]", "さん", "three", 0],
+  ["num", "四[よん]", "よん", "four", 1],
+  ["num", "五[ご]", "ご", "five", 1],
+  ["num", "六[ろく]", "ろく", "six", 2],
+  ["num", "七[なな]", "なな", "seven", 1],
+  ["num", "八[はち]", "はち", "eight", 2],
+  ["num", "九[きゅう]", "きゅう", "nine", 1],
+  ["num", "十[じゅう]", "じゅう", "ten", 1],
+  ["num", "百[ひゃく]", "ひゃく", "hundred", 2],
+  ["num", "千[せん]", "せん", "thousand", 1],
+  ["num", "万[まん]", "まん", "ten thousand", 1],
+  ["num", "半分[はんぶん]", "はんぶん", "half", 3],
+  ["num", "一[ひと]つ", "ひとつ", "one (thing)", 2],
+  ["num", "二[ふた]つ", "ふたつ", "two (things)", 3],
+  ["num", "三[みっ]つ", "みっつ", "three (things)", 3],
+  ["num", "いくつ", "いくつ", "how many", 1],
+  // 色
+  ["col", "色[いろ]", "いろ", "colour", 2],
+  ["col", "赤[あか]", "あか", "red", 1],
+  ["col", "青[あお]", "あお", "blue", 1],
+  ["col", "白[しろ]", "しろ", "white", 1],
+  ["col", "黒[くろ]", "くろ", "black", 1],
+  ["col", "黄色[きいろ]", "きいろ", "yellow", 0],
+  ["col", "緑[みどり]", "みどり", "green", 1],
+  ["col", "茶色[ちゃいろ]", "ちゃいろ", "brown", 0],
+  ["col", "赤[あか]い", "あかい", "red (adjective)", 0],
+  ["col", "青[あお]い", "あおい", "blue (adjective)", 2],
+  ["col", "白[しろ]い", "しろい", "white (adjective)", 2],
+  ["col", "黒[くろ]い", "くろい", "black (adjective)", 2],
+  // 人・家族
+  ["ppl", "人[ひと]", "ひと", "person", 0],
+  ["ppl", "私[わたし]", "わたし", "I, me", 0],
+  ["ppl", "友[とも]だち", "ともだち", "friend", 0],
+  ["ppl", "家族[かぞく]", "かぞく", "family", 1],
+  ["ppl", "父[ちち]", "ちち", "my father", 2],
+  ["ppl", "母[はは]", "はは", "my mother", 1],
+  ["ppl", "お父[とう]さん", "おとうさん", "father (polite)", 2],
+  ["ppl", "お母[かあ]さん", "おかあさん", "mother (polite)", 2],
+  ["ppl", "兄[あに]", "あに", "my older brother", 1],
+  ["ppl", "姉[あね]", "あね", "my older sister", 0],
+  ["ppl", "弟[おとうと]", "おとうと", "younger brother", 4],
+  ["ppl", "妹[いもうと]", "いもうと", "younger sister", 4],
+  ["ppl", "子[こ]ども", "こども", "child", 0],
+  ["ppl", "男[おとこ]", "おとこ", "man", 3],
+  ["ppl", "女[おんな]", "おんな", "woman", 3],
+  ["ppl", "先生[せんせい]", "せんせい", "teacher", 3],
+  ["ppl", "学生[がくせい]", "がくせい", "student", 0],
+  ["ppl", "名前[なまえ]", "なまえ", "name", 0],
+  // 時間
+  ["tim", "今[いま]", "いま", "now", 1],
+  ["tim", "今日[きょう]", "きょう", "today", 1],
+  ["tim", "明日[あした]", "あした", "tomorrow", 3],
+  ["tim", "昨日[きのう]", "きのう", "yesterday", 2],
+  ["tim", "朝[あさ]", "あさ", "morning", 1],
+  ["tim", "昼[ひる]", "ひる", "midday, daytime", 2],
+  ["tim", "夜[よる]", "よる", "night", 1],
+  ["tim", "毎日[まいにち]", "まいにち", "every day", 1],
+  ["tim", "時間[じかん]", "じかん", "time, hour", 0],
+  ["tim", "今週[こんしゅう]", "こんしゅう", "this week", 0],
+  ["tim", "来年[らいねん]", "らいねん", "next year", 0],
+  ["tim", "去年[きょねん]", "きょねん", "last year", 1],
+  ["tim", "月曜日[げつようび]", "げつようび", "Monday", 3],
+  ["tim", "火曜日[かようび]", "かようび", "Tuesday", 2],
+  ["tim", "水曜日[すいようび]", "すいようび", "Wednesday", 3],
+  ["tim", "木曜日[もくようび]", "もくようび", "Thursday", 3],
+  ["tim", "金曜日[きんようび]", "きんようび", "Friday", 3],
+  ["tim", "土曜日[どようび]", "どようび", "Saturday", 2],
+  ["tim", "日曜日[にちようび]", "にちようび", "Sunday", 3],
+  // 方向・位置
+  ["dir", "上[うえ]", "うえ", "above, on top", 0],
+  ["dir", "下[した]", "した", "below, under", 0],
+  ["dir", "中[なか]", "なか", "inside", 1],
+  ["dir", "外[そと]", "そと", "outside", 1],
+  ["dir", "前[まえ]", "まえ", "front, before", 1],
+  ["dir", "後[うし]ろ", "うしろ", "behind", 0],
+  ["dir", "右[みぎ]", "みぎ", "right", 0],
+  ["dir", "左[ひだり]", "ひだり", "left", 0],
+  ["dir", "北[きた]", "きた", "north", 0],
+  ["dir", "南[みなみ]", "みなみ", "south", 0],
+  ["dir", "東[ひがし]", "ひがし", "east", 0],
+  ["dir", "西[にし]", "にし", "west", 0],
+  ["dir", "近[ちか]く", "ちかく", "nearby", 1],
+  ["dir", "隣[となり]", "となり", "next to", 0],
+  ["dir", "間[あいだ]", "あいだ", "between", 0],
+  // 動物
+  ["ani", "動物[どうぶつ]", "どうぶつ", "animal", 0],
+  ["ani", "犬[いぬ]", "いぬ", "dog", 2],
+  ["ani", "猫[ねこ]", "ねこ", "cat", 1],
+  ["ani", "鳥[とり]", "とり", "bird", 0],
+  ["ani", "魚[さかな]", "さかな", "fish", 0],
+  ["ani", "馬[うま]", "うま", "horse", 2],
+  ["ani", "牛[うし]", "うし", "cow", 0],
+  ["ani", "豚[ぶた]", "ぶた", "pig", 0],
+  ["ani", "虫[むし]", "むし", "insect", 0],
+  ["ani", "象[ぞう]", "ぞう", "elephant", 1],
+  ["ani", "熊[くま]", "くま", "bear", 2],
+  ["ani", "兎[うさぎ]", "うさぎ", "rabbit", 0],
+  // 食べ物
+  ["foo", "食[た]べ物[もの]", "たべもの", "food", 3],
+  ["foo", "飲[の]み物[もの]", "のみもの", "drink", 3],
+  ["foo", "水[みず]", "みず", "water", 0],
+  ["foo", "お茶[ちゃ]", "おちゃ", "tea", 0],
+  ["foo", "米[こめ]", "こめ", "rice (uncooked)", 2],
+  ["foo", "ご飯[はん]", "ごはん", "cooked rice, a meal", 1],
+  ["foo", "肉[にく]", "にく", "meat", 2],
+  ["foo", "野菜[やさい]", "やさい", "vegetable", 0],
+  ["foo", "果物[くだもの]", "くだもの", "fruit", 2],
+  ["foo", "卵[たまご]", "たまご", "egg", 2],
+  ["foo", "パン", "パン", "bread", 1],
+  ["foo", "牛乳[ぎゅうにゅう]", "ぎゅうにゅう", "milk", 0],
+  ["foo", "お酒[さけ]", "おさけ", "alcohol, sake", 0],
+  ["foo", "塩[しお]", "しお", "salt", 2],
+  ["foo", "砂糖[さとう]", "さとう", "sugar", 2],
+  // 体
+  ["bod", "体[からだ]", "からだ", "body", 0],
+  ["bod", "頭[あたま]", "あたま", "head", 3],
+  ["bod", "顔[かお]", "かお", "face", 0],
+  ["bod", "目[め]", "め", "eye", 1],
+  ["bod", "耳[みみ]", "みみ", "ear", 2],
+  ["bod", "口[くち]", "くち", "mouth", 0],
+  ["bod", "鼻[はな]", "はな", "nose", 0],
+  ["bod", "手[て]", "て", "hand", 1],
+  ["bod", "足[あし]", "あし", "leg, foot", 2],
+  ["bod", "歯[は]", "は", "tooth", 1],
+  ["bod", "首[くび]", "くび", "neck", 0],
+  ["bod", "背[せ]", "せ", "back, height", 1],
+  // 場所
+  ["pla", "家[いえ]", "いえ", "house", 2],
+  ["pla", "学校[がっこう]", "がっこう", "school", 0],
+  ["pla", "会社[かいしゃ]", "かいしゃ", "company", 0],
+  ["pla", "駅[えき]", "えき", "station", 1],
+  ["pla", "店[みせ]", "みせ", "shop", 2],
+  ["pla", "病院[びょういん]", "びょういん", "hospital", 0],
+  ["pla", "銀行[ぎんこう]", "ぎんこう", "bank", 0],
+  ["pla", "図書館[としょかん]", "としょかん", "library", 2],
+  ["pla", "部屋[へや]", "へや", "room", 2],
+  ["pla", "公園[こうえん]", "こうえん", "park", 0],
+  ["pla", "郵便局[ゆうびんきょく]", "ゆうびんきょく", "post office", 3],
+  ["pla", "台所[だいどころ]", "だいどころ", "kitchen", 0],
+  ["pla", "玄関[げんかん]", "げんかん", "entrance hall", 1],
+  ["pla", "国[くに]", "くに", "country", 0],
+  // 自然
+  ["nat", "天気[てんき]", "てんき", "weather", 1],
+  ["nat", "雨[あめ]", "あめ", "rain", 1],
+  ["nat", "雪[ゆき]", "ゆき", "snow", 2],
+  ["nat", "風[かぜ]", "かぜ", "wind", 0],
+  ["nat", "空[そら]", "そら", "sky", 1],
+  ["nat", "山[やま]", "やま", "mountain", 2],
+  ["nat", "川[かわ]", "かわ", "river", 2],
+  ["nat", "海[うみ]", "うみ", "sea", 1],
+  ["nat", "木[き]", "き", "tree", 1],
+  ["nat", "花[はな]", "はな", "flower", 2],
+  ["nat", "石[いし]", "いし", "stone", 2],
+  ["nat", "月[つき]", "つき", "moon", 2],
+  ["nat", "星[ほし]", "ほし", "star", 0],
+  // 身の回り
+  ["obj", "本[ほん]", "ほん", "book", 1],
+  ["obj", "紙[かみ]", "かみ", "paper", 2],
+  ["obj", "鉛筆[えんぴつ]", "えんぴつ", "pencil", 0],
+  ["obj", "傘[かさ]", "かさ", "umbrella", 1],
+  ["obj", "靴[くつ]", "くつ", "shoes", 2],
+  ["obj", "服[ふく]", "ふく", "clothes", 2],
+  ["obj", "帽子[ぼうし]", "ぼうし", "hat", 0],
+  ["obj", "時計[とけい]", "とけい", "clock, watch", 0],
+  ["obj", "電話[でんわ]", "でんわ", "telephone", 0],
+  ["obj", "机[つくえ]", "つくえ", "desk", 0],
+  ["obj", "椅子[いす]", "いす", "chair", 0],
+  ["obj", "窓[まど]", "まど", "window", 1],
+  ["obj", "鍵[かぎ]", "かぎ", "key", 2],
+  ["obj", "財布[さいふ]", "さいふ", "wallet", 0],
+  ["obj", "新聞[しんぶん]", "しんぶん", "newspaper", 0],
+  // 乗り物
+  ["tra", "車[くるま]", "くるま", "car", 0],
+  ["tra", "電車[でんしゃ]", "でんしゃ", "train", 0],
+  ["tra", "自転車[じてんしゃ]", "じてんしゃ", "bicycle", 2],
+  ["tra", "飛行機[ひこうき]", "ひこうき", "aeroplane", 2],
+  ["tra", "船[ふね]", "ふね", "ship, boat", 1],
+  ["tra", "地下鉄[ちかてつ]", "ちかてつ", "underground, subway", 0],
+  ["tra", "バス", "バス", "bus", 1],
+  ["tra", "タクシー", "タクシー", "taxi", 1],
+  ["tra", "道[みち]", "みち", "road, way", 0],
+  ["tra", "切符[きっぷ]", "きっぷ", "ticket", 0],
+].map(([cat, jp, kana, en, pitch]) => ({
+  id: `${cat}:${kana}:${en}`,
+  cat,
+  jp,
+  kana,
+  en,
+  pitch,
+  level: "N5",
+}));
+
+// Hand-authored seed. Fetched words are merged on top of this at runtime.
+const SEED = (() => {
+  const seen = new Set();
+  return WORDS.filter((w) => {
+    const k = w.kana + "|" + w.en;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+})();
+
+/* ------------------------------------------------------------------ */
+/*  JAPANESE TEXT HELPERS                                              */
+/* ------------------------------------------------------------------ */
+// Written form with the furigana markup stripped: 食[た]べ物[もの] → 食べ物
+const surface = (jp) => jp.replace(/\[[^\]]*\]/g, "");
+// Two entries are the same word if the written form and the reading match.
+const dedupeKey = (w) => `${surface(w.jp)}|${w.kana}`;
+
+function mergeWords(lists) {
+  const seen = new Set();
+  const out = [];
+  for (const list of lists)
+    for (const w of list) {
+      const k = dedupeKey(w);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(w);
+    }
+  return out;
+}
+
+const KANJI = /[\u4E00-\u9FAF\u3005]/;
+const SMALL = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ";
+
+function parseFurigana(src) {
+  const out = [];
+  let buf = "";
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "[") {
+      const close = src.indexOf("]", i);
+      const reading = src.slice(i + 1, close);
+      let b = "";
+      while (buf.length && KANJI.test(buf[buf.length - 1])) {
+        b = buf[buf.length - 1] + b;
+        buf = buf.slice(0, -1);
+      }
+      if (buf) out.push({ t: buf });
+      buf = "";
+      out.push({ t: b, r: reading });
+      i = close;
+    } else buf += ch;
+  }
+  if (buf) out.push({ t: buf });
+  return out;
+}
+
+function moras(kana) {
+  const out = [];
+  for (const ch of kana) {
+    if (SMALL.includes(ch) && out.length) out[out.length - 1] += ch;
+    else out.push(ch);
+  }
+  return out;
+}
+
+function pitchPattern(drop, n) {
+  const a = new Array(n + 1).fill(false);
+  if (drop === 0) {
+    for (let i = 1; i <= n; i++) a[i] = true;
+  } else {
+    a[0] = drop === 1;
+    for (let i = 1; i <= n; i++) a[i] = i < drop;
+  }
+  return a;
+}
+
+const PITCH_NAME = (drop, n) =>
+  drop === 0
+    ? "平板 heiban — flat, stays high"
+    : drop === 1
+    ? "頭高 atamadaka — drops after mora 1"
+    : drop === n
+    ? "尾高 odaka — drops on the particle"
+    : `中高 nakadaka — drops after mora ${drop}`;
+
+/* ------------------------------------------------------------------ */
+/*  SPACED REPETITION (SM-2, lightly tuned)                            */
+/* ------------------------------------------------------------------ */
+const DAY = 86400000;
+const MATURE = 21; // days of interval that counts as "mastered"
+
+function newCard() {
+  return { ease: 2.5, interval: 0, reps: 0, lapses: 0, due: 0, seen: false };
+}
+
+function grade(card, g) {
+  // g: 0 again, 1 hard, 2 good, 3 easy
+  let { ease, interval, reps, lapses } = card;
+  if (g === 0) {
+    reps = 0;
+    lapses += 1;
+    ease = Math.max(1.3, ease - 0.2);
+    interval = 0;
+  } else {
+    if (reps === 0) interval = g === 3 ? 3 : 1;
+    else if (reps === 1) interval = g === 1 ? 2 : g === 2 ? 4 : 6;
+    else
+      interval = Math.max(
+        interval + 1,
+        Math.round(interval * (g === 1 ? 1.2 : ease) * (g === 3 ? 1.3 : 1))
+      );
+    reps += 1;
+    ease = Math.max(1.3, ease + (g === 1 ? -0.15 : g === 3 ? 0.1 : 0));
+  }
+  return {
+    ease,
+    interval,
+    reps,
+    lapses,
+    seen: true,
+    due: Date.now() + (interval === 0 ? 3 * 60000 : interval * DAY),
+  };
+}
+
+const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE));
+
+const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
+
+/* ------------------------------------------------------------------ */
+/*  PERSISTENCE                                                        */
+/* ------------------------------------------------------------------ */
+const KEY = "jpvocab:v1";
+const BANK_KEY = "jpvocab:bank:v1";
+const DEFAULTS = {
+  cards: {},
+  unlocked: { N5: 2 },
+  settings: { autoplay: true, rate: 0.85, newPerDay: 10, showPitch: true, level: "N5" },
+  newToday: { date: "", count: 0, bonus: 0 },
+};
+
+// The storage bridge differs slightly between hosts, so try the documented
+// explicit-shared form first and fall back to the two-argument form.
+let WRITE_SHAPE = null;
+
+async function attempt(fn) {
+  try {
+    const r = await fn();
+    return { ok: r !== null && r !== undefined, r };
+  } catch (e) {
+    return { ok: false, err: String((e && e.message) || e) };
+  }
+}
+
+async function loadState() {
+  if (typeof window === "undefined" || !window.storage)
+    return { data: DEFAULTS, status: "unavailable", note: "No storage API on this device." };
+  const shapes = [() => window.storage.get(KEY, false), () => window.storage.get(KEY)];
+  for (const s of shapes) {
+    const { ok, r } = await attempt(s);
+    if (ok && r && r.value) {
+      try {
+        const p = JSON.parse(r.value);
+        if (typeof p.unlocked === "number") p.unlocked = { N5: p.unlocked };
+        return {
+          data: { ...DEFAULTS, ...p, settings: { ...DEFAULTS.settings, ...(p.settings || {}) } },
+          status: "ok",
+          note: "Loaded your saved progress.",
+        };
+      } catch {
+        return { data: DEFAULTS, status: "ok", note: "Saved data was unreadable; starting fresh." };
+      }
+    }
+  }
+  return { data: DEFAULTS, status: "ok", note: "Nothing saved yet." };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function saveState(s) {
+  if (typeof window === "undefined" || !window.storage)
+    return { ok: false, note: "No storage API on this device." };
+  const payload = JSON.stringify(s);
+  const shapes = [
+    ["explicit", () => window.storage.set(KEY, payload, false)],
+    ["short", () => window.storage.set(KEY, payload)],
+  ];
+  const ordered = WRITE_SHAPE
+    ? shapes.filter((x) => x[0] === WRITE_SHAPE).concat(shapes.filter((x) => x[0] !== WRITE_SHAPE))
+    : shapes;
+  let last = "";
+  // The bridge can come up late, so give it a few tries before giving up.
+  for (const wait of [0, 400, 1200]) {
+    if (wait) await sleep(wait);
+    for (const [name, fn] of ordered) {
+      const res = await attempt(fn);
+      if (res.ok) {
+        WRITE_SHAPE = name;
+        return {
+          ok: true,
+          note: `Saved at ${new Date().toLocaleTimeString()} · ${(payload.length / 1024).toFixed(1)} KB`,
+        };
+      }
+      last = res.err || "the host returned nothing";
+    }
+  }
+  return { ok: false, note: last };
+}
+
+async function loadBank() {
+  if (typeof window === "undefined" || !window.storage) return [];
+  for (const fn of [() => window.storage.get(BANK_KEY, false), () => window.storage.get(BANK_KEY)]) {
+    const { ok, r } = await attempt(fn);
+    if (ok && r && r.value) {
+      try {
+        const a = JSON.parse(r.value);
+        if (Array.isArray(a)) return a;
+      } catch {
+        /* unreadable bank — start empty */
+      }
+    }
+  }
+  return [];
+}
+
+async function saveBank(bank) {
+  if (typeof window === "undefined" || !window.storage) return false;
+  const payload = JSON.stringify(bank);
+  for (const fn of [
+    () => window.storage.set(BANK_KEY, payload, false),
+    () => window.storage.set(BANK_KEY, payload),
+  ]) {
+    const res = await attempt(fn);
+    if (res.ok) return true;
+  }
+  return false;
+}
+
+async function probeStorage() {
+  const out = [];
+  if (typeof window === "undefined" || !window.storage) return "No window.storage object exists.";
+  out.push(
+    "methods: " +
+      ["get", "set", "delete", "list"].filter((m) => typeof window.storage[m] === "function").join(", ")
+  );
+  const tk = "jpvocab:probe";
+  for (const [label, fn] of [
+    ["set(key,value,false)", () => window.storage.set(tk, "x", false)],
+    ["set(key,value)", () => window.storage.set(tk, "x")],
+    ["get(key,false)", () => window.storage.get(tk, false)],
+    ["list()", () => window.storage.list("jpvocab:", false)],
+  ]) {
+    const r = await attempt(fn);
+    out.push(`${label} → ${r.ok ? "ok" : r.err || "null"}`);
+  }
+  return out.join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/*  FETCHING NEW WORDS                                                 */
+/* ------------------------------------------------------------------ */
+function validate(raw, level) {
+  const catIds = CATS.map((c) => c.id);
+  const out = [];
+  for (const r of Array.isArray(raw) ? raw : []) {
+    if (!r || typeof r.jp !== "string" || typeof r.kana !== "string") continue;
+    if (typeof r.en !== "string" || !r.en.trim()) continue;
+    if (!catIds.includes(r.cat)) continue;
+    const pitch = Number.isInteger(r.pitch) ? r.pitch : 0;
+    const n = moras(r.kana).length;
+    if (pitch < 0 || pitch > n) continue;
+    // Reject markup we can't render, and readings that aren't kana.
+    if ((r.jp.match(/\[/g) || []).length !== (r.jp.match(/\]/g) || []).length) continue;
+    if (!/^[\u3040-\u30FFー]+$/.test(r.kana)) continue;
+    out.push({
+      id: `${r.cat}:${r.kana}:${r.en}`,
+      cat: r.cat,
+      jp: r.jp.trim(),
+      kana: r.kana.trim(),
+      en: r.en.trim(),
+      pitch,
+      level,
+      fetched: true,
+    });
+  }
+  return out;
+}
+
+function buildPrompt({ level, cat, exclude, count }) {
+  const c = CATS.find((x) => x.id === cat);
+  const avoid = exclude.slice(-120).join("、");
+  return `List ${count} distinct Japanese vocabulary words at JLPT ${level} level in the category "${c.en}" (${c.jp}).
+
+Return ONLY a JSON array. No prose, no markdown fences. Each element:
+{"jp":"...","kana":"...","en":"...","cat":"${cat}","pitch":0}
+
+Rules:
+- "jp" is the standard written form with furigana in square brackets after each kanji run, e.g. 食[た]べ物[もの], 電車[でんしゃ], 赤[あか]い. Kana-only words have no brackets.
+- "kana" is the full reading in kana only.
+- "en" is a short English meaning, under six words.
+- "pitch" is the standard Tokyo accent drop position as an integer: 0 for heiban, 1 for atamadaka, otherwise the mora after which the pitch drops. It must not exceed the number of morae.
+- Words must genuinely fit ${level}, not an easier or harder level.
+- Do not include any of these, which are already in the deck: ${avoid || "(none yet)"}
+- No duplicates within your own list.`;
+}
+
+function parseWordJson(text, level) {
+  const cleaned = String(text).replace(/```json|```/g, "").trim();
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start === -1 || end === -1) throw new Error("No JSON list found in that text");
+  return validate(JSON.parse(cleaned.slice(start, end + 1)), level);
+}
+
+async function fetchWords({ level, cat, exclude, count }) {
+  const prompt = buildPrompt({ level, cat, exclude, count });
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  const data = await res.json();
+  const text = (data.content || [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+  return parseWordJson(text, level);
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  SPEECH                                                             */
+/* ------------------------------------------------------------------ */
+function useSpeech() {
+  const [ok, setOk] = useState(false);
+  const voice = useRef(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const pick = () => {
+      const vs = window.speechSynthesis.getVoices();
+      const ja = vs.filter((v) => v.lang && v.lang.toLowerCase().startsWith("ja"));
+      voice.current =
+        ja.find((v) => /kyoko|otoya|google|nanami|haruka/i.test(v.name)) || ja[0] || null;
+      setOk(!!voice.current || vs.length > 0);
+    };
+    pick();
+    window.speechSynthesis.onvoiceschanged = pick;
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
+  const say = useCallback((text, rate) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ja-JP";
+    u.rate = rate ?? 0.85;
+    if (voice.current) u.voice = voice.current;
+    window.speechSynthesis.speak(u);
+  }, []);
+  return { say, ok };
+}
+
+/* ------------------------------------------------------------------ */
+/*  UI PIECES                                                          */
+/* ------------------------------------------------------------------ */
+function Furigana({ src, size = 64, showRuby = true }) {
+  const parts = useMemo(() => parseFurigana(src), [src]);
+  return (
+    <span
+      style={{
+        fontFamily: JP_FACE,
+        fontSize: size,
+        lineHeight: 1.5,
+        color: C.ink,
+        display: "inline-block",
+      }}
+    >
+      {parts.map((p, i) =>
+        p.r && showRuby ? (
+          <ruby key={i} style={{ rubyAlign: "center" }}>
+            {p.t}
+            <rt style={{ fontSize: size * 0.3, letterSpacing: "0.04em", color: C.indigo }}>
+              {p.r}
+            </rt>
+          </ruby>
+        ) : (
+          <span key={i}>{p.t}</span>
+        )
+      )}
+    </span>
+  );
+}
+
+/* The signature element: an OJAD-style accent contour that traces itself
+   in time with the audio. */
+function PitchContour({ kana, drop, traceKey }) {
+  const mo = useMemo(() => moras(kana), [kana]);
+  const n = mo.length;
+  const pat = pitchPattern(drop, n);
+  const step = 30,
+    padX = 16,
+    hi = 16,
+    lo = 40;
+  const w = padX * 2 + (n) * step;
+  const pts = pat.map((h, i) => [padX + i * step, h ? hi : lo]);
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0]},${p[1]}`).join(" ");
+  const len = pts.reduce(
+    (a, p, i) =>
+      i === 0 ? 0 : a + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]),
+    0
+  );
+  const reduced =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={w} height={72} key={traceKey} style={{ overflow: "visible" }}>
+        <line x1={padX - 6} y1={hi} x2={w - padX + 6} y2={hi} stroke={C.paperEdge} strokeWidth="1" />
+        <line x1={padX - 6} y1={lo} x2={w - padX + 6} y2={lo} stroke={C.paperEdge} strokeWidth="1" />
+        <path
+          d={d}
+          fill="none"
+          stroke={C.indigo}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={
+            reduced
+              ? undefined
+              : {
+                  strokeDasharray: len,
+                  strokeDashoffset: len,
+                  animation: `jpTrace ${Math.max(0.5, n * 0.22)}s ease-out forwards`,
+                }
+          }
+        />
+        {pts.map(([x, y], i) =>
+          i === n ? (
+            <circle key={i} cx={x} cy={y} r="4.5" fill={C.paper} stroke={C.indigo} strokeWidth="1.5" strokeDasharray="2 2" />
+          ) : (
+            <circle key={i} cx={x} cy={y} r="5" fill={C.indigo} />
+          )
+        )}
+        {mo.map((m, i) => (
+          <text
+            key={i}
+            x={padX + i * step}
+            y={62}
+            textAnchor="middle"
+            style={{ fontFamily: JP_FACE, fontSize: 15, fill: C.indigo, opacity: 0.75 }}
+          >
+            {m}
+          </text>
+        ))}
+        <text
+          x={padX + n * step}
+          y={62}
+          textAnchor="middle"
+          style={{ fontFamily: JP_FACE, fontSize: 15, fill: C.muted, opacity: 0.6 }}
+        >
+          が
+        </text>
+      </svg>
+      <div
+        className="mt-1"
+        style={{ fontFamily: SANS, fontSize: 11, color: C.muted, letterSpacing: "0.02em" }}
+      >
+        {PITCH_NAME(drop, n)}
+      </div>
+    </div>
+  );
+}
+
+function Bar({ value, tint = C.moss, h = 6 }) {
+  return (
+    <div className="w-full rounded-full overflow-hidden" style={{ background: C.line, height: h }}>
+      <div
+        className="h-full rounded-full"
+        style={{ width: `${Math.round(value * 100)}%`, background: tint, transition: "width .5s ease" }}
+      />
+    </div>
+  );
+}
+
+function Label({ children }) {
+  return (
+    <div
+      style={{
+        fontFamily: MONO,
+        fontSize: 10,
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        color: C.muted,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MAIN                                                               */
+/* ------------------------------------------------------------------ */
+function App() {
+  const [state, setState] = useState(null);
+  const [view, setView] = useState("home");
+  const [queue, setQueue] = useState([]);
+  const [idx, setIdx] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [traceKey, setTraceKey] = useState(0);
+  const [tally, setTally] = useState({ done: 0, right: 0 });
+  const [save, setSave] = useState({ status: "checking", note: "Checking storage…" });
+  const [backup, setBackup] = useState("");
+  const [copied, setCopied] = useState("");
+  const [bank, setBank] = useState([]);
+  const [fetching, setFetching] = useState(false);
+  const [fetchNote, setFetchNote] = useState("");
+  const [paste, setPaste] = useState("");
+  const loaded = useRef(false);
+  const { say, ok: ttsOk } = useSpeech();
+
+  useEffect(() => {
+    loadState().then((r) => {
+      setState(r.data);
+      setSave({ status: r.status, note: r.note });
+      loaded.current = true;
+    });
+    loadBank().then(setBank);
+  }, []);
+
+  // Debounced write — batching avoids tripping the storage rate limit.
+  useEffect(() => {
+    if (!state || !loaded.current) return;
+    const t = setTimeout(() => {
+      saveState(state).then((r) =>
+        setSave({ status: r.ok ? "ok" : "failed", note: r.note })
+      );
+    }, 500);
+    return () => clearTimeout(t);
+  }, [state]);
+
+  const set = (fn) => setState((s) => (s ? fn(s) : s));
+
+  const level = state ? state.settings.level : "N5";
+
+  // Everything we know about, deduplicated by written form plus reading.
+  const allWords = useMemo(() => mergeWords([SEED, bank]), [bank]);
+  const DECK = useMemo(() => allWords.filter((w) => w.level === level), [allWords, level]);
+  const unlockedCount = state ? state.unlocked[level] ?? 2 : 2;
+
+  const unlockedCats = useMemo(() => CATS.slice(0, unlockedCount), [unlockedCount]);
+  const pool = useMemo(
+    () => DECK.filter((w) => unlockedCats.some((c) => c.id === w.cat)),
+    [unlockedCats, DECK]
+  );
+
+  const mastery = useMemo(() => {
+    if (!state || !pool.length) return 0;
+    return pool.reduce((a, w) => a + cardMastery(state.cards[w.id]), 0) / pool.length;
+  }, [state, pool]);
+
+  const overall = useMemo(() => {
+    if (!state || !DECK.length) return 0;
+    return DECK.reduce((a, w) => a + cardMastery(state.cards[w.id]), 0) / DECK.length;
+  }, [state, DECK]);
+
+  // Unlock the next category once the current pool is well established.
+  useEffect(() => {
+    if (!state) return;
+    if (mastery >= 0.4 && unlockedCount < CATS.length) {
+      set((s) => ({ ...s, unlocked: { ...s.unlocked, [level]: unlockedCount + 1 } }));
+    }
+  }, [mastery, unlockedCount, level]);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const fresh0 =
+    state && state.newToday.date === today ? state.newToday : { count: 0, bonus: 0 };
+  const newLeft = state
+    ? Math.max(0, state.settings.newPerDay + (fresh0.bonus || 0) - (fresh0.count || 0))
+    : 0;
+
+  const dueList = useMemo(() => {
+    if (!state) return [];
+    const now = Date.now();
+    return pool.filter((w) => {
+      const c = state.cards[w.id];
+      return c && c.seen && c.due <= now;
+    });
+  }, [state, pool]);
+
+  const freshList = useMemo(() => {
+    if (!state) return [];
+    return pool.filter((w) => !state.cards[w.id] || !state.cards[w.id].seen);
+  }, [state, pool]);
+
+  const startSession = () => {
+    const fresh = freshList.slice(0, newLeft);
+    const q = [...dueList, ...fresh].sort(() => Math.random() - 0.5);
+    if (!q.length) return;
+    setQueue(q);
+    setIdx(0);
+    setRevealed(false);
+    setTally({ done: 0, right: 0 });
+    setView("review");
+  };
+
+  const current = queue[idx];
+
+  // Play + trace whenever a new card surfaces.
+  useEffect(() => {
+    if (view !== "review" || !current || !state) return;
+    setTraceKey((k) => k + 1);
+    if (state.settings.autoplay) say(current.kana, state.settings.rate);
+  }, [idx, view, current?.id]);
+
+  const replay = () => {
+    if (!current) return;
+    setTraceKey((k) => k + 1);
+    say(current.kana, state.settings.rate);
+  };
+
+  const commit = (w, card, correct) => {
+    const wasNew = !(state.cards[w.id] && state.cards[w.id].seen);
+    set((s) => {
+      const t = s.newToday.date === today ? s.newToday : { date: today, count: 0, bonus: 0 };
+      return {
+        ...s,
+        cards: { ...s.cards, [w.id]: card },
+        newToday: wasNew ? { ...t, date: today, count: t.count + 1 } : t,
+      };
+    });
+    setTally((t) => ({ done: t.done + 1, right: t.right + (correct ? 1 : 0) }));
+    const rest = !correct ? [...queue.slice(idx + 1), w] : queue.slice(idx + 1);
+    if (!rest.length) {
+      setView("done");
+      window.speechSynthesis && window.speechSynthesis.cancel();
+    } else {
+      setQueue(rest);
+      setIdx(0);
+      setRevealed(false);
+    }
+  };
+
+  const answer = (g) =>
+    commit(current, grade(state.cards[current.id] || newCard(), g), g > 0);
+
+  // "I already know this" — parks the word at a month's interval rather than
+  // walking it through the early steps.
+  const knowIt = () =>
+    commit(
+      current,
+      { ease: 2.6, interval: 30, reps: 3, lapses: 0, seen: true, due: Date.now() + 30 * DAY },
+      true
+    );
+
+  const addMore = () =>
+    set((s) => {
+      const t = s.newToday.date === today ? s.newToday : { date: today, count: 0, bonus: 0 };
+      return { ...s, newToday: { ...t, date: today, bonus: (t.bonus || 0) + 10 } };
+    });
+
+  const unlockNext = () =>
+    set((s) => ({
+      ...s,
+      unlocked: { ...s.unlocked, [level]: Math.min(CATS.length, (s.unlocked[level] ?? 2) + 1) },
+    }));
+
+  const thinnestCat = () =>
+    CATS.slice(0, unlockedCount)
+      .map((c) => ({ id: c.id, n: DECK.filter((w) => w.cat === c.id).length }))
+      .sort((a, b) => a.n - b.n)[0].id;
+
+  const copyPrompt = (catId) => {
+    const cat = catId || thinnestCat();
+    const exclude = allWords.filter((w) => w.cat === cat).map((w) => w.kana);
+    const text = buildPrompt({ level, cat, exclude, count: 20 });
+    if (navigator.clipboard)
+      navigator.clipboard.writeText(text).then(
+        () => setFetchNote("Prompt copied. Paste it into Claude, then paste the JSON back below."),
+        () => setPaste(text)
+      );
+    else setPaste(text);
+  };
+
+  const importWords = () => {
+    try {
+      const got = parseWordJson(paste, level);
+      if (!got.length) throw new Error("Nothing usable in that text");
+      const before = allWords.length;
+      const merged = mergeWords([SEED, bank, got]);
+      const added = merged.length - before;
+      const next = merged.filter((w) => w.fetched);
+      setBank(next);
+      saveBank(next);
+      setPaste("");
+      setFetchNote(
+        added
+          ? `Added ${added} words${got.length - added ? `, skipped ${got.length - added} duplicates` : ""}.`
+          : "Every word in that list was already in your deck."
+      );
+    } catch (e) {
+      setFetchNote(`Couldn't import: ${String((e && e.message) || e).slice(0, 100)}`);
+    }
+  };
+
+  const addWords = async (targetCat) => {
+    if (fetching) return;
+    setFetching(true);
+    setFetchNote("Asking Claude for words…");
+    try {
+      const cats = targetCat ? [targetCat] : CATS.slice(0, unlockedCount).map((c) => c.id);
+      // Pick whichever unlocked category currently has the fewest words.
+      const pick = targetCat
+        ? targetCat
+        : cats
+            .map((id) => ({ id, n: DECK.filter((w) => w.cat === id).length }))
+            .sort((a, b) => a.n - b.n)[0].id;
+      const exclude = allWords.filter((w) => w.cat === pick).map((w) => w.kana);
+      const got = await fetchWords({ level, cat: pick, exclude, count: 20 });
+      const before = allWords.length;
+      const merged = mergeWords([SEED, bank, got]);
+      const added = merged.length - before;
+      const next = merged.filter((w) => w.fetched);
+      setBank(next);
+      saveBank(next);
+      setFetchNote(
+        added
+          ? `Added ${added} new ${CATS.find((c) => c.id === pick).en.toLowerCase()} words${
+              got.length - added ? `, skipped ${got.length - added} duplicates` : ""
+            }.`
+          : "Nothing new came back — everything returned was already in the deck."
+      );
+    } catch (e) {
+      setFetchNote(`Couldn't fetch words: ${String((e && e.message) || e).slice(0, 100)}`);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // Returned as elements rather than a component, so the textarea keeps focus.
+  const backupPanel = () => (
+    <>
+      <div className="flex gap-2 mt-2">
+        <button
+          onClick={() => {
+            const t = JSON.stringify(state);
+            setBackup(t);
+            if (navigator.clipboard)
+              navigator.clipboard.writeText(t).then(
+                () => setCopied("Copied to clipboard"),
+                () => setCopied("Select the text below and copy it")
+              );
+            else setCopied("Select the text below and copy it");
+          }}
+          className="flex-1 rounded-lg py-2"
+          style={{ border: `1px solid ${C.line}`, color: C.indigoLt, fontFamily: SANS, fontSize: 12 }}
+        >
+          Copy progress out
+        </button>
+        <button
+          onClick={() => {
+            try {
+              const p = JSON.parse(backup);
+              if (!p || typeof p.cards !== "object") throw new Error();
+              setState({ ...DEFAULTS, ...p, settings: { ...DEFAULTS.settings, ...(p.settings || {}) } });
+              setBackup("");
+              setCopied("Progress restored");
+            } catch {
+              setCopied("That isn't valid progress data — paste the whole line.");
+            }
+          }}
+          disabled={!backup}
+          className="flex-1 rounded-lg py-2"
+          style={{
+            border: `1px solid ${C.line}`,
+            color: backup ? C.indigoLt : C.muted,
+            fontFamily: SANS,
+            fontSize: 12,
+            opacity: backup ? 1 : 0.4,
+          }}
+        >
+          Paste progress in
+        </button>
+      </div>
+      <textarea
+        value={backup}
+        onChange={(e) => setBackup(e.target.value)}
+        placeholder="Your progress appears here. Keep it somewhere safe, and paste it back to restore."
+        rows={3}
+        className="w-full mt-2 rounded-lg p-2"
+        style={{ background: C.ink, border: `1px solid ${C.line}`, color: C.paper, fontFamily: MONO, fontSize: 10 }}
+      />
+      {copied && (
+        <div className="mt-1" style={{ fontFamily: SANS, fontSize: 11, color: C.moss }}>
+          {copied}
+        </div>
+      )}
+    </>
+  );
+
+  if (!state)
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: C.ink, color: C.muted, fontFamily: MONO, fontSize: 12 }}
+      >
+        読み込み中…
+      </div>
+    );
+
+  const catStats = CATS.map((c, i) => {
+    const ws = DECK.filter((w) => w.cat === c.id);
+    const m = ws.reduce((a, w) => a + cardMastery(state.cards[w.id]), 0) / ws.length;
+    return { ...c, count: ws.length, mastery: ws.length ? m : 0, locked: i >= unlockedCount };
+  });
+
+  return (
+    <div className="min-h-screen w-full" style={{ background: C.ink, fontFamily: SANS }}>
+      <style>{`
+        @keyframes jpTrace { to { stroke-dashoffset: 0; } }
+        @keyframes jpRise { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform:none;} }
+        button:focus-visible { outline: 2px solid ${C.indigoLt}; outline-offset: 2px; }
+        rt { user-select: none; }
+      `}</style>
+
+      <div className="mx-auto w-full max-w-md px-5 pb-16 pt-8">
+        {/* masthead */}
+        <div className="flex items-baseline justify-between mb-7">
+          <div className="flex items-baseline gap-3">
+            <span style={{ fontFamily: JP_FACE, fontSize: 26, color: C.paper, letterSpacing: "0.08em" }}>
+              語彙
+            </span>
+            <Label>JLPT {level} · {DECK.length} words</Label>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setView(view === "library" ? "home" : "library")}
+              className="rounded-full px-3 py-1"
+              style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", color: C.gold, border: `1px solid ${C.line}` }}
+            >
+              {view === "library" ? "BACK" : "WORDS"}
+            </button>
+            <button
+              onClick={() => setView(view === "settings" ? "home" : "settings")}
+              className="rounded-full px-3 py-1"
+              style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", color: C.indigoLt, border: `1px solid ${C.line}` }}
+            >
+              {view === "settings" ? "BACK" : "SETUP"}
+            </button>
+          </div>
+        </div>
+
+        {/* ---------------- HOME ---------------- */}
+        {view === "home" && (
+          <div style={{ animation: "jpRise .4s ease both" }}>
+            {save.status !== "ok" && save.status !== "checking" && (
+              <div
+                className="rounded-xl px-4 py-3 mb-4"
+                style={{ border: `1px solid ${C.brick}`, background: "rgba(168,84,73,.12)" }}
+              >
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.paper, fontWeight: 600 }}>
+                  Progress isn't saving
+                </div>
+                <div className="mt-1" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+                  {save.note} If Code execution and file creation is already on in
+                  Claude's settings, this is the artifact host rather than your
+                  setup — copy your progress out before you close the app, and
+                  paste it back when you return.
+                </div>
+                {backupPanel()}
+              </div>
+            )}
+            <div className="rounded-2xl p-5 mb-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <div className="flex items-end justify-between mb-3">
+                <div>
+                  <Label>Mastery of unlocked words</Label>
+                  <div style={{ fontFamily: MONO, fontSize: 40, color: C.paper, lineHeight: 1.1 }}>
+                    {Math.round(mastery * 100)}
+                    <span style={{ fontSize: 18, color: C.muted }}>%</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <Label>Whole N5 set</Label>
+                  <div style={{ fontFamily: MONO, fontSize: 18, color: C.indigoLt }}>
+                    {Math.round(overall * 100)}%
+                  </div>
+                </div>
+              </div>
+              <Bar value={mastery} />
+              <div className="mt-3" style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
+                {unlockedCount < CATS.length
+                  ? `Reach 40% to unlock ${CATS[unlockedCount].en.toLowerCase()} — or open it yourself below.`
+                  : "Every category is open. Keep the reviews coming."}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {[
+                ["Due now", dueList.length],
+                ["New today", Math.min(newLeft, freshList.length)],
+                ["Words open", pool.length],
+              ].map(([l, v]) => (
+                <div key={l} className="rounded-xl p-3" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+                  <div style={{ fontFamily: MONO, fontSize: 22, color: C.paper }}>{v}</div>
+                  <div style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>{l}</div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={startSession}
+              disabled={!dueList.length && !Math.min(newLeft, freshList.length)}
+              className="w-full rounded-xl py-4 mb-7"
+              style={{
+                background:
+                  dueList.length || Math.min(newLeft, freshList.length) ? C.paper : C.inkSoft,
+                color: dueList.length || Math.min(newLeft, freshList.length) ? C.ink : C.muted,
+                border: `1px solid ${C.line}`,
+                fontFamily: SANS,
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
+              {dueList.length || Math.min(newLeft, freshList.length)
+                ? "Start reviewing"
+                : DECK.length === 0
+                ? `No ${level} words yet — add some in Words`
+                : "Nothing due — come back later"}
+            </button>
+
+            <div className="grid grid-cols-2 gap-3 -mt-4 mb-7">
+              <button
+                onClick={addMore}
+                disabled={!freshList.length}
+                className="rounded-xl py-3"
+                style={{
+                  border: `1px solid ${C.line}`,
+                  color: freshList.length ? C.indigoLt : C.muted,
+                  fontFamily: SANS,
+                  fontSize: 13,
+                  opacity: freshList.length ? 1 : 0.4,
+                }}
+              >
+                +10 new words
+              </button>
+              <button
+                onClick={unlockNext}
+                disabled={unlockedCount >= CATS.length}
+                className="rounded-xl py-3"
+                style={{
+                  border: `1px solid ${C.line}`,
+                  color: unlockedCount < CATS.length ? C.indigoLt : C.muted,
+                  fontFamily: SANS,
+                  fontSize: 13,
+                  opacity: unlockedCount < CATS.length ? 1 : 0.4,
+                }}
+              >
+                {unlockedCount < CATS.length
+                  ? `Unlock ${CATS[unlockedCount].jp}`
+                  : "All unlocked"}
+              </button>
+            </div>
+
+            <Label>Categories</Label>
+            <div className="mt-3 space-y-2">
+              {catStats.map((c) => (
+                <div
+                  key={c.id}
+                  className="rounded-xl px-4 py-3 flex items-center gap-3"
+                  style={{
+                    background: c.locked ? "transparent" : C.inkSoft,
+                    border: `1px solid ${c.locked ? "#2A3A5C" : C.line}`,
+                    opacity: c.locked ? 0.45 : 1,
+                  }}
+                >
+                  {/* indigo swatch — dyes deeper as mastery rises */}
+                  <div
+                    className="rounded-md shrink-0 overflow-hidden flex items-end"
+                    style={{ width: 26, height: 26, background: "#26365A" }}
+                  >
+                    <div style={{ width: "100%", height: `${c.mastery * 100}%`, background: C.indigoLt }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div style={{ fontFamily: JP_FACE, fontSize: 15, color: C.paper }}>
+                      {c.jp}
+                      <span style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}> · {c.en}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: MONO, fontSize: 11, color: c.locked ? C.muted : C.indigoLt }}>
+                    {c.locked ? "LOCKED" : `${Math.round(c.mastery * 100)}% / ${c.count}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- REVIEW ---------------- */}
+        {view === "review" && current && (
+          <div style={{ animation: "jpRise .3s ease both" }}>
+            <div className="flex items-center justify-between mb-3">
+              <Label>{CATS.find((c) => c.id === current.cat).en} · N5</Label>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>
+                {queue.length} left
+              </div>
+            </div>
+
+            <div
+              className="rounded-3xl px-5 pt-9 pb-6 flex flex-col items-center"
+              style={{ background: C.paper, boxShadow: "0 18px 40px rgba(0,0,0,.35)" }}
+            >
+              <Furigana src={current.jp} size={58} />
+
+              {state.settings.showPitch && (
+                <div className="mt-5">
+                  <PitchContour kana={current.kana} drop={current.pitch} traceKey={traceKey} />
+                </div>
+              )}
+
+              <button
+                onClick={replay}
+                className="mt-4 rounded-full px-5 py-2"
+                style={{
+                  border: `1px solid ${C.paperEdge}`,
+                  color: C.indigo,
+                  fontFamily: SANS,
+                  fontSize: 13,
+                }}
+              >
+                ▶ Play again
+              </button>
+              {!ttsOk && (
+                <div className="mt-2 text-center" style={{ fontFamily: SANS, fontSize: 11, color: C.brick }}>
+                  No Japanese voice found on this device. Add one in your system
+                  speech settings.
+                </div>
+              )}
+
+              <div
+                className="w-full mt-6 pt-5 text-center"
+                style={{ borderTop: `1px solid ${C.paperEdge}`, minHeight: 62 }}
+              >
+                {revealed ? (
+                  <div style={{ animation: "jpRise .25s ease both" }}>
+                    <div style={{ fontFamily: SANS, fontSize: 20, color: C.ink, fontWeight: 500 }}>
+                      {current.en}
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setRevealed(true)}
+                    style={{ fontFamily: SANS, fontSize: 14, color: C.muted }}
+                  >
+                    Tap to show the meaning
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {revealed ? (
+              <div className="grid grid-cols-4 gap-2 mt-4">
+                {[
+                  ["Again", C.brick, 0],
+                  ["Hard", C.gold, 1],
+                  ["Good", C.moss, 2],
+                  ["Easy", C.indigoLt, 3],
+                ].map(([l, col, g]) => (
+                  <button
+                    key={l}
+                    onClick={() => answer(g)}
+                    className="rounded-xl py-3"
+                    style={{
+                      background: C.inkSoft,
+                      border: `1px solid ${col}`,
+                      color: col,
+                      fontFamily: SANS,
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <button
+                onClick={() => setRevealed(true)}
+                className="w-full rounded-xl py-4 mt-4"
+                style={{ background: C.panel, color: C.paper, fontFamily: SANS, fontSize: 15, fontWeight: 600 }}
+              >
+                Show meaning
+              </button>
+            )}
+
+            <div className="flex items-center justify-between mt-3">
+              <button
+                onClick={knowIt}
+                className="rounded-lg px-3 py-2"
+                style={{ fontFamily: SANS, fontSize: 12, color: C.indigoLt, border: `1px solid ${C.line}` }}
+              >
+                I already know this
+              </button>
+              <button
+                onClick={() => {
+                  window.speechSynthesis && window.speechSynthesis.cancel();
+                  setView("home");
+                }}
+                className="py-2 px-2"
+                style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}
+              >
+                End session
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- DONE ---------------- */}
+        {view === "done" && (
+          <div className="rounded-2xl p-6 text-center" style={{ background: C.inkSoft, border: `1px solid ${C.line}`, animation: "jpRise .4s ease both" }}>
+            <div style={{ fontFamily: JP_FACE, fontSize: 30, color: C.paper }}>お疲[つか]れさま</div>
+            <div className="mt-3" style={{ fontFamily: MONO, fontSize: 13, color: C.indigoLt }}>
+              {tally.done} cards · {tally.done ? Math.round((tally.right / tally.done) * 100) : 0}% recalled
+            </div>
+            <button
+              onClick={() => setView("home")}
+              className="mt-6 w-full rounded-xl py-3"
+              style={{ background: C.paper, color: C.ink, fontFamily: SANS, fontSize: 14, fontWeight: 600 }}
+            >
+              Back to the deck
+            </button>
+
+            {save.status === "failed" && (
+              <div className="mt-5 pt-4 text-left" style={{ borderTop: `1px solid ${C.line}` }}>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.brick, fontWeight: 600 }}>
+                  Save this before you close the app
+                </div>
+                <div className="mt-1" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+                  Storage isn't working here, so this session is only in memory.
+                  Copy the text out and keep it in a note.
+                </div>
+                {backupPanel()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---------------- LIBRARY ---------------- */}
+        {view === "library" && (
+          <div className="space-y-4" style={{ animation: "jpRise .3s ease both" }}>
+            <div className="rounded-xl px-4 py-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <Label>Level you're studying</Label>
+              <div className="grid grid-cols-5 gap-2 mt-3">
+                {LEVELS.map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => set((s) => ({ ...s, settings: { ...s.settings, level: l } }))}
+                    className="rounded-lg py-2"
+                    style={{
+                      border: `1px solid ${l === level ? C.gold : C.line}`,
+                      background: l === level ? "rgba(179,150,83,.14)" : "transparent",
+                      color: l === level ? C.gold : C.muted,
+                      fontFamily: MONO,
+                      fontSize: 12,
+                    }}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+                Each level has its own deck and its own unlock progress. Reviews
+                only draw from the level you're on.
+              </p>
+            </div>
+
+            <button
+              onClick={() => copyPrompt(null)}
+              className="w-full rounded-xl py-4"
+              style={{
+                background: C.paper,
+                color: C.ink,
+                border: `1px solid ${C.line}`,
+                fontFamily: SANS,
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
+              Copy a prompt for more {level} words
+            </button>
+
+            <textarea
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+              placeholder="Paste the JSON list Claude gives you here, then tap Import."
+              rows={4}
+              className="w-full rounded-xl p-3"
+              style={{ background: C.inkSoft, border: `1px solid ${C.line}`, color: C.paper, fontFamily: MONO, fontSize: 11 }}
+            />
+            <button
+              onClick={importWords}
+              disabled={!paste.trim()}
+              className="w-full rounded-xl py-3"
+              style={{
+                border: `1px solid ${C.line}`,
+                color: paste.trim() ? C.indigoLt : C.muted,
+                fontFamily: SANS,
+                fontSize: 14,
+                opacity: paste.trim() ? 1 : 0.4,
+              }}
+            >
+              Import words
+            </button>
+
+            {fetchNote && (
+              <div
+                className="rounded-xl px-4 py-3"
+                style={{ background: C.inkSoft, border: `1px solid ${C.line}`, fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.5 }}
+              >
+                {fetchNote}
+              </div>
+            )}
+
+            <Label>Fill a specific category</Label>
+            <div className="space-y-2">
+              {CATS.map((c) => {
+                const n = DECK.filter((w) => w.cat === c.id).length;
+                return (
+                  <div
+                    key={c.id}
+                    className="rounded-xl px-4 py-3 flex items-center gap-3"
+                    style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div style={{ fontFamily: JP_FACE, fontSize: 15, color: C.paper }}>
+                        {c.jp}
+                        <span style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}> · {c.en}</span>
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>{n}</div>
+                    <button
+                      onClick={() => copyPrompt(c.id)}
+                      className="rounded-lg px-3 py-1"
+                      style={{
+                        border: `1px solid ${C.line}`,
+                        color: C.indigoLt,
+                        fontFamily: SANS,
+                        fontSize: 12,
+                      }}
+                    >
+                      prompt
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="rounded-xl px-4 py-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <Label>How this works</Label>
+              <p className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+New words come from Claude in the chat app: copy a prompt, paste
+                it into any Claude conversation, then paste the JSON back here.
+                Everything is checked before it's kept:
+                anything with a broken reading, an impossible pitch value or a
+                written form and reading already in your deck is discarded.
+                Readings and meanings are usually sound. Pitch accents and level
+                assignments are the weak spots — check anything that matters
+                against OJAD. {allWords.filter((w) => w.fetched).length} fetched
+                words are stored so far.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------- SETTINGS ---------------- */}
+        {view === "settings" && (
+          <div className="space-y-4" style={{ animation: "jpRise .3s ease both" }}>
+            {[
+              {
+                label: "Play audio automatically",
+                node: (
+                  <button
+                    onClick={() => set((s) => ({ ...s, settings: { ...s.settings, autoplay: !s.settings.autoplay } }))}
+                    className="rounded-full px-4 py-1"
+                    style={{
+                      border: `1px solid ${state.settings.autoplay ? C.moss : C.line}`,
+                      color: state.settings.autoplay ? C.moss : C.muted,
+                      fontFamily: MONO,
+                      fontSize: 11,
+                    }}
+                  >
+                    {state.settings.autoplay ? "ON" : "OFF"}
+                  </button>
+                ),
+              },
+              {
+                label: "Show the pitch contour",
+                node: (
+                  <button
+                    onClick={() => set((s) => ({ ...s, settings: { ...s.settings, showPitch: !s.settings.showPitch } }))}
+                    className="rounded-full px-4 py-1"
+                    style={{
+                      border: `1px solid ${state.settings.showPitch ? C.moss : C.line}`,
+                      color: state.settings.showPitch ? C.moss : C.muted,
+                      fontFamily: MONO,
+                      fontSize: 11,
+                    }}
+                  >
+                    {state.settings.showPitch ? "ON" : "OFF"}
+                  </button>
+                ),
+              },
+            ].map((r) => (
+              <div key={r.label} className="rounded-xl px-4 py-3 flex items-center justify-between" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+                <span style={{ fontFamily: SANS, fontSize: 14, color: C.paper }}>{r.label}</span>
+                {r.node}
+              </div>
+            ))}
+
+            <div className="rounded-xl px-4 py-3" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <div className="flex justify-between mb-2">
+                <span style={{ fontFamily: SANS, fontSize: 14, color: C.paper }}>Speech speed</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, color: C.indigoLt }}>{state.settings.rate.toFixed(2)}×</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="1.2"
+                step="0.05"
+                value={state.settings.rate}
+                onChange={(e) =>
+                  set((s) => ({ ...s, settings: { ...s.settings, rate: parseFloat(e.target.value) } }))
+                }
+                className="w-full"
+              />
+            </div>
+
+            <div className="rounded-xl px-4 py-3" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <div className="flex justify-between mb-2">
+                <span style={{ fontFamily: SANS, fontSize: 14, color: C.paper }}>New words per day</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, color: C.indigoLt }}>{state.settings.newPerDay}</span>
+              </div>
+              <input
+                type="range"
+                min="3"
+                max="60"
+                step="1"
+                value={state.settings.newPerDay}
+                onChange={(e) =>
+                  set((s) => ({ ...s, settings: { ...s.settings, newPerDay: parseInt(e.target.value) } }))
+                }
+                className="w-full"
+              />
+            </div>
+
+            <div className="rounded-xl px-4 py-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <div className="flex items-center justify-between">
+                <Label>Saving</Label>
+                <span
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: 11,
+                    color:
+                      save.status === "ok" ? C.moss : save.status === "checking" ? C.muted : C.brick,
+                  }}
+                >
+                  {save.status.toUpperCase()}
+                </span>
+              </div>
+              <p className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+                {save.note}
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => probeStorage().then((t) => setBackup(t))}
+                  className="flex-1 rounded-lg py-2"
+                  style={{ border: `1px solid ${C.gold}`, color: C.gold, fontFamily: SANS, fontSize: 12 }}
+                >
+                  Run storage test
+                </button>
+              </div>
+              {backupPanel()}
+            </div>
+
+            <div className="rounded-xl px-4 py-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+              <Label>About the data</Label>
+              <p className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+                {SEED.length} hand-written N5 words plus{" "}
+                {allWords.filter((w) => w.fetched).length} fetched ones, all
+                deduplicated by written form and reading. Pitch accents are worth
+                checking against OJAD before you commit them to memory. Progress is
+                saved in this device's browser storage.
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                if (confirm("Erase all progress and start again?"))
+                  setState({ ...DEFAULTS, cards: {}, newToday: { date: "", count: 0, bonus: 0 } });
+              }}
+              className="w-full rounded-xl py-3"
+              style={{ border: `1px solid ${C.brick}`, color: C.brick, fontFamily: SANS, fontSize: 13 }}
+            >
+              Erase progress
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+window.__syncReady.then(() => {
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<App />);
+});
+</script>
+
+<script>
+/* Update handling: when a new deploy is detected, offer it rather than
+   reloading underneath the user mid-review. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", async () => {
+    let reg;
+    try { reg = await navigator.serviceWorker.register("sw.js"); } catch { return; }
+
+    const offer = (worker) => {
+      const bar = document.getElementById("updatebar");
+      bar.style.display = "flex";
+      document.getElementById("updatebtn").onclick = () => {
+        worker.postMessage("skip-waiting");
+      };
+    };
+
+    if (reg.waiting) offer(reg.waiting);
+
+    reg.addEventListener("updatefound", () => {
+      const w = reg.installing;
+      if (!w) return;
+      w.addEventListener("statechange", () => {
+        // controller present means this is an update, not a first install.
+        if (w.state === "installed" && navigator.serviceWorker.controller) offer(w);
+      });
+    });
+
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+
+    // Check for a new deploy on launch and whenever the app is reopened.
+    const check = () => reg.update().catch(() => {});
+    check();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") check();
+    });
+  });
+}
+</script>
+</body>
+</html>
