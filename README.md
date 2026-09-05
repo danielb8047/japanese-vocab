@@ -77,6 +77,16 @@ Last write wins, by timestamp. Reviewing on two devices simultaneously while
 offline will lose one side's session. For single-user daily use this is fine;
 per-card merging would be the fix if it ever bites.
 
+## What the app does
+
+- **Review** — spaced repetition over the level you are studying, with kanji,
+  furigana, audio, pitch accent contour and usage notes.
+- **Browse** — tap a category on the home screen to see every word in it with
+  its mastery bar and due date.
+- **Daily progress** — how much you did each day and how you graded it.
+- **Words** — switch level, or import extra vocabulary.
+- **Setup** — audio, pitch display, daily new-word limit, backup, version.
+
 ## Versions
 
 The app shows its version under **Setup → VERSION**. `CHANGELOG.md` lists what

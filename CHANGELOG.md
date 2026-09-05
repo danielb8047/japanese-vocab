@@ -12,6 +12,19 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.4.0 — browse your words, and see your days
+
+- **Tap any unlocked category to browse its words.** Each word shows a mastery
+  bar derived from its review interval — the same figure the home screen totals
+  up — plus how many days until it is due, and a play button to hear it. Sort
+  by mastery to see what is lagging, or A–Z to find something specific.
+- **New "Daily progress" screen.** A stacked bar per day for the last two
+  weeks, coloured to match the review buttons: Again, Hard, Good, Easy. A
+  second chart splits new words from reviews. Headline figures for cards
+  studied, days active and recall rate.
+- Reviews are logged from this version onward, so the charts start empty and
+  fill in as you use the app. The log keeps 120 days and rides along with sync.
+
 ## 1.3.1 — fixes
 
 - **The version number now actually appears.** 1.2.0 defined it but never

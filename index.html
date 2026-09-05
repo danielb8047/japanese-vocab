@@ -594,7 +594,7 @@ function grade(card, g) {
 
 const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE));
 
-const APP_VERSION = "1.3.1";
+const APP_VERSION = "1.4.0";
 const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
 // Level decks are separate files so a phone only downloads what it studies.
@@ -624,7 +624,38 @@ const DEFAULTS = {
   unlocked: { N5: 2 },
   settings: { autoplay: true, rate: 0.85, newPerDay: 10, showPitch: true, level: "N5" },
   newToday: { date: "", count: 0, bonus: 0 },
+  history: {},   // "YYYY-MM-DD" -> { n, r, g: [again, hard, good, easy] }
 };
+
+const GRADES = [
+  { key: "again", label: "Again", colour: "#A85449" },
+  { key: "hard", label: "Hard", colour: "#B39653" },
+  { key: "good", label: "Good", colour: "#7A9068" },
+  { key: "easy", label: "Easy", colour: "#8FB0D6" },
+];
+
+const HISTORY_DAYS = 120;
+
+function dayKey(d) {
+  // Local date, not UTC — a session at 11pm belongs to that evening.
+  const z = new Date(d);
+  return `${z.getFullYear()}-${String(z.getMonth() + 1).padStart(2, "0")}-${String(
+    z.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function recordAnswer(history, isNew, gradeIndex) {
+  const k = dayKey(Date.now());
+  const prev = history[k] || { n: 0, r: 0, g: [0, 0, 0, 0] };
+  const g = prev.g.slice();
+  g[gradeIndex] += 1;
+  const next = { ...history, [k]: { n: prev.n + (isNew ? 1 : 0), r: prev.r + (isNew ? 0 : 1), g } };
+  // Keep the log bounded; it rides along in every sync payload.
+  const keys = Object.keys(next).sort();
+  if (keys.length > HISTORY_DAYS)
+    for (const old of keys.slice(0, keys.length - HISTORY_DAYS)) delete next[old];
+  return next;
+}
 
 // The storage bridge differs slightly between hosts, so try the documented
 // explicit-shared form first and fall back to the two-argument form.
@@ -1022,6 +1053,8 @@ function App() {
   const [fetchNote, setFetchNote] = useState("");
   const [paste, setPaste] = useState("");
   const [levelWords, setLevelWords] = useState({});
+  const [browseCat, setBrowseCat] = useState(null);
+  const [sortBy, setSortBy] = useState("mastery");
   const [loadingLevel, setLoadingLevel] = useState(false);
   const loaded = useRef(false);
   const { say, ok: ttsOk } = useSpeech();
@@ -1169,7 +1202,7 @@ function App() {
     say(current.kana, state.settings.rate);
   };
 
-  const commit = (w, card, correct) => {
+  const commit = (w, card, correct, gradeIndex) => {
     const wasNew = !(state.cards[w.id] && state.cards[w.id].seen);
     set((s) => {
       const t = s.newToday.date === today ? s.newToday : { date: today, count: 0, bonus: 0 };
@@ -1177,6 +1210,10 @@ function App() {
         ...s,
         cards: { ...s.cards, [w.id]: card },
         newToday: wasNew ? { ...t, date: today, count: t.count + 1 } : t,
+        history:
+          gradeIndex === undefined
+            ? s.history || {}
+            : recordAnswer(s.history || {}, wasNew, gradeIndex),
       };
     });
     setTally((t) => ({ done: t.done + 1, right: t.right + (correct ? 1 : 0) }));
@@ -1192,7 +1229,7 @@ function App() {
   };
 
   const answer = (g) =>
-    commit(current, grade(state.cards[current.id] || newCard(), g), g > 0);
+    commit(current, grade(state.cards[current.id] || newCard(), g), g > 0, g);
 
   // "I already know this" — parks the word at a month's interval rather than
   // walking it through the early steps.
@@ -1200,7 +1237,8 @@ function App() {
     commit(
       current,
       { ease: 2.6, interval: 30, reps: 3, lapses: 0, seen: true, due: Date.now() + 30 * DAY },
-      true
+      true,
+      3
     );
 
   const addMore = () =>
@@ -1511,16 +1549,32 @@ function App() {
               </button>
             </div>
 
+            <button
+              onClick={() => setView("stats")}
+              className="w-full rounded-xl py-3 mb-6 flex items-center justify-center gap-2"
+              style={{ border: `1px solid ${C.line}`, background: C.inkSoft, color: C.indigoLt, fontFamily: SANS, fontSize: 14 }}
+            >
+              Daily progress
+              <span style={{ fontSize: 15, lineHeight: 1 }}>›</span>
+            </button>
+
             <Label>Categories</Label>
             <div className="mt-3 space-y-2">
               {catStats.map((c) => (
                 <div
                   key={c.id}
+                  onClick={() => {
+                    if (c.locked || !c.count) return;
+                    setBrowseCat(c.id);
+                    setView("browse");
+                  }}
+                  role={c.locked ? undefined : "button"}
                   className="rounded-xl px-4 py-3 flex items-center gap-3"
                   style={{
                     background: c.locked ? "transparent" : C.inkSoft,
                     border: `1px solid ${c.locked ? "#2A3A5C" : C.line}`,
                     opacity: c.locked ? 0.45 : 1,
+                    cursor: c.locked ? "default" : "pointer",
                   }}
                 >
                   {/* indigo swatch — dyes deeper as mastery rises */}
@@ -1539,6 +1593,9 @@ function App() {
                   <div style={{ fontFamily: MONO, fontSize: 11, color: c.locked ? C.muted : C.indigoLt }}>
                     {c.locked ? "LOCKED" : `${Math.round(c.mastery * 100)}% / ${c.count}`}
                   </div>
+                  {!c.locked && (
+                    <span style={{ color: C.muted, fontSize: 16, lineHeight: 1 }}>›</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1745,6 +1802,256 @@ function App() {
             )}
           </div>
         )}
+
+        {/* ---------------- BROWSE A CATEGORY ---------------- */}
+        {view === "browse" && browseCat && (() => {
+          const cat = CATS.find((c) => c.id === browseCat);
+          let words = DECK.filter((w) => w.cat === browseCat);
+          words = words.slice().sort((a, b) => {
+            if (sortBy === "mastery")
+              return cardMastery(state.cards[b.id]) - cardMastery(state.cards[a.id]);
+            if (sortBy === "kana") return a.kana.localeCompare(b.kana, "ja");
+            return 0;
+          });
+          const learned = words.filter((w) => (state.cards[w.id] || {}).seen).length;
+          return (
+            <div style={{ animation: "jpRise .3s ease both" }}>
+              <button
+                onClick={() => setView("home")}
+                className="mb-4"
+                style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}
+              >
+                ‹ All categories
+              </button>
+
+              <div className="rounded-xl px-4 py-4 mb-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+                <div style={{ fontFamily: JP_FACE, fontSize: 20, color: C.paper }}>{cat.jp}</div>
+                <div className="mt-1" style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}>
+                  {cat.en} · {words.length} words · {learned} started
+                </div>
+              </div>
+
+              <div className="flex gap-2 mb-3">
+                {[["mastery", "By mastery"], ["kana", "A–Z"]].map(([k, l]) => (
+                  <button
+                    key={k}
+                    onClick={() => setSortBy(k)}
+                    className="rounded-full px-3 py-1"
+                    style={{
+                      border: `1px solid ${sortBy === k ? C.indigoLt : C.line}`,
+                      color: sortBy === k ? C.indigoLt : C.muted,
+                      fontFamily: SANS,
+                      fontSize: 12,
+                    }}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                {words.map((w) => {
+                  const card = state.cards[w.id];
+                  const m = cardMastery(card);
+                  return (
+                    <div
+                      key={w.id}
+                      className="rounded-xl px-4 py-3"
+                      style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div style={{ color: C.paper }}>
+                            <span style={{ fontFamily: JP_FACE, fontSize: 19 }}>
+                              <Furigana src={w.jp} size={19} />
+                            </span>
+                          </div>
+                          <div className="mt-1" style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
+                            {w.en}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => say(w.kana, state.settings.rate)}
+                          className="rounded-full px-2 py-1 shrink-0"
+                          style={{ border: `1px solid ${C.line}`, color: C.indigoLt, fontSize: 12 }}
+                          aria-label={`Play ${w.kana}`}
+                        >
+                          ▶
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="flex-1">
+                          <Bar
+                            value={m}
+                            tint={m >= 0.99 ? C.indigoLt : m > 0 ? C.moss : C.line}
+                            h={5}
+                          />
+                        </div>
+                        <span style={{ fontFamily: MONO, fontSize: 10, color: C.muted, minWidth: 74, textAlign: "right" }}>
+                          {!card || !card.seen
+                            ? "not started"
+                            : m >= 0.99
+                            ? "mastered"
+                            : `${Math.round(m * 100)}% · ${card.interval}d`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ---------------- DAILY PROGRESS ---------------- */}
+        {view === "stats" && (() => {
+          const hist = state.history || {};
+          const days = [];
+          for (let i = 13; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const k = dayKey(d);
+            days.push({ k, d, ...(hist[k] || { n: 0, r: 0, g: [0, 0, 0, 0] }) });
+          }
+          const peak = Math.max(1, ...days.map((x) => x.g.reduce((a, b) => a + b, 0)));
+          const totals = days.reduce(
+            (a, x) => a.map((v, i) => v + x.g[i]),
+            [0, 0, 0, 0]
+          );
+          const grand = totals.reduce((a, b) => a + b, 0);
+          const H = 130;
+          const active = days.filter((x) => x.g.reduce((a, b) => a + b, 0) > 0).length;
+
+          return (
+            <div style={{ animation: "jpRise .3s ease both" }}>
+              <button
+                onClick={() => setView("home")}
+                className="mb-4"
+                style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}
+              >
+                ‹ Back
+              </button>
+
+              {grand === 0 ? (
+                <div className="rounded-xl px-4 py-8 text-center" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+                  <div style={{ fontFamily: SANS, fontSize: 14, color: C.paper }}>
+                    Nothing logged yet
+                  </div>
+                  <div className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+                    Reviews are recorded from now on. Come back after a session
+                    or two and this fills in.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-5">
+                    {[
+                      ["Cards, 14 days", grand],
+                      ["Days active", active],
+                      ["Recall rate", `${Math.round(((grand - totals[0]) / grand) * 100)}%`],
+                    ].map(([l, v]) => (
+                      <div key={l} className="rounded-xl p-3" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
+                        <div style={{ fontFamily: MONO, fontSize: 20, color: C.paper }}>{v}</div>
+                        <div style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Label>How you graded each day</Label>
+                  <div
+                    className="rounded-xl px-3 pt-4 pb-3 mt-3"
+                    style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}
+                  >
+                    <div className="flex items-end justify-between gap-1" style={{ height: H }}>
+                      {days.map((x) => {
+                        const tot = x.g.reduce((a, b) => a + b, 0);
+                        return (
+                          <div key={x.k} className="flex-1 flex flex-col justify-end items-center" style={{ height: H }}>
+                            {tot > 0 && (
+                              <span style={{ fontFamily: MONO, fontSize: 8, color: C.muted, marginBottom: 2 }}>
+                                {tot}
+                              </span>
+                            )}
+                            <div
+                              className="w-full rounded-sm overflow-hidden flex flex-col-reverse"
+                              style={{ height: (tot / peak) * (H - 16), minHeight: tot ? 3 : 0, background: "transparent" }}
+                            >
+                              {GRADES.map((g, i) =>
+                                x.g[i] ? (
+                                  <div
+                                    key={g.key}
+                                    style={{ height: `${(x.g[i] / tot) * 100}%`, background: g.colour }}
+                                    title={`${g.label}: ${x.g[i]}`}
+                                  />
+                                ) : null
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between gap-1 mt-2">
+                      {days.map((x, i) => (
+                        <div
+                          key={x.k}
+                          className="flex-1 text-center"
+                          style={{ fontFamily: MONO, fontSize: 8, color: C.muted }}
+                        >
+                          {i % 2 === 0 ? x.d.getDate() : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 mt-3 mb-6">
+                    {GRADES.map((g, i) => (
+                      <div key={g.key} className="flex items-center gap-1.5">
+                        <span style={{ width: 10, height: 10, borderRadius: 2, background: g.colour, display: "inline-block" }} />
+                        <span style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>
+                          {g.label} {grand ? `${Math.round((totals[i] / grand) * 100)}%` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Label>New words against reviews</Label>
+                  <div
+                    className="rounded-xl px-3 pt-4 pb-3 mt-3"
+                    style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}
+                  >
+                    {(() => {
+                      const peak2 = Math.max(1, ...days.map((x) => x.n + x.r));
+                      return (
+                        <div className="flex items-end justify-between gap-1" style={{ height: 90 }}>
+                          {days.map((x) => (
+                            <div key={x.k} className="flex-1 flex flex-col justify-end" style={{ height: 90 }}>
+                              <div
+                                className="w-full rounded-sm overflow-hidden flex flex-col-reverse"
+                                style={{ height: ((x.n + x.r) / peak2) * 78, minHeight: x.n + x.r ? 3 : 0 }}
+                              >
+                                <div style={{ height: `${x.n + x.r ? (x.n / (x.n + x.r)) * 100 : 0}%`, background: C.gold }} />
+                                <div style={{ height: `${x.n + x.r ? (x.r / (x.n + x.r)) * 100 : 0}%`, background: C.indigo }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex gap-3 mt-3">
+                    {[["New words", C.gold], ["Reviews", C.indigo]].map(([l, col]) => (
+                      <div key={l} className="flex items-center gap-1.5">
+                        <span style={{ width: 10, height: 10, borderRadius: 2, background: col, display: "inline-block" }} />
+                        <span style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>{l}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ---------------- LIBRARY ---------------- */}
         {view === "library" && (
