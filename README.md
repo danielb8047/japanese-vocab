@@ -115,9 +115,35 @@ check. Failing that, open the site in Safari, then Settings → Safari → Advan
 → Website Data and remove the entry. Your cloud progress restores on next
 launch, provided sync is on.
 
+## The vocabulary deck
+
+`cats.js` and `words-n5.js` … `words-n1.js` hold 7,689 words across all five
+JLPT levels, built from JMdict-derived sources:
+
+| Level | Words | With pitch accent |
+|---|---|---|
+| N5 | 661 | 589 |
+| N4 | 627 | ~90% |
+| N3 | 2,133 | ~90% |
+| N2 | 1,628 | ~90% |
+| N1 | 2,640 | ~90% |
+
+Only the level you are studying is downloaded — N5 is about 90 KB. Switching
+level in the app fetches that level's file once and caches it.
+
+Pitch accents come from Kanjium rather than being guessed, and words without
+an entry show no contour instead of a wrong one. Furigana alignment is
+per-kanji, so 図書館 renders with と, しょ and かん over the right characters.
+
+To rebuild or re-categorise the deck, see `vendor/README.md`.
+
 ## Known limits
 
-- Pitch accents and JLPT levels are approximate — verify against OJAD.
+- Pitch accents are real data now, but Kanjium lists alternatives for some
+  words and the build takes the first. JLPT levels are a reconstruction — no
+  official list has been published since 2010.
+- Category assignment is keyword-based and imperfect; unusual glosses land in
+  "Ideas & everything else".
 - Safari blocks audio until you tap something, so the first card may be silent.
 - JSX compiles in the browser at startup, costing about a second on first load.
   Run it through Vite if that ever matters.

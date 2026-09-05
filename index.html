@@ -45,6 +45,9 @@
 </head>
 <body>
 <div id="root"></div>
+
+<script src="cats.js"></script>
+<script src="words-n5.js"></script>
 <div id="updatebar">
   <span>A new version is available.</span>
   <button id="updatebtn">UPDATE</button>
@@ -249,7 +252,7 @@ const SANS =
 /*  NOTE: pitch values are entered by hand and should be checked        */
 /*  against OJAD (www.gavo.t.u-tokyo.ac.jp/ojad) before you trust them. */
 /* ------------------------------------------------------------------ */
-const CATS = [
+const BUILTIN_CATS = [
   { id: "num", jp: "数字", en: "Numbers" },
   { id: "col", jp: "色", en: "Colours" },
   { id: "ppl", jp: "人・家族", en: "People & family" },
@@ -263,6 +266,9 @@ const CATS = [
   { id: "obj", jp: "身の回り", en: "Everyday things" },
   { id: "tra", jp: "乗り物", en: "Getting around" },
 ];
+
+const CATS =
+  (typeof window !== "undefined" && window.JPVOCAB_CATS) || BUILTIN_CATS;
 
 const WORDS = [
   // 数字
@@ -590,6 +596,23 @@ const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE)
 
 const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
+// Level decks are separate files so a phone only downloads what it studies.
+const levelCache = {};
+function loadLevel(lv) {
+  if (typeof window === "undefined") return Promise.resolve([]);
+  const have = (window.JPVOCAB_LEVELS || {})[lv];
+  if (have) return Promise.resolve(have);
+  if (levelCache[lv]) return levelCache[lv];
+  levelCache[lv] = new Promise((resolve) => {
+    const s = document.createElement("script");
+    s.src = `words-${lv.toLowerCase()}.js`;
+    s.onload = () => resolve((window.JPVOCAB_LEVELS || {})[lv] || []);
+    s.onerror = () => resolve([]);
+    document.head.appendChild(s);
+  });
+  return levelCache[lv];
+}
+
 /* ------------------------------------------------------------------ */
 /*  PERSISTENCE                                                        */
 /* ------------------------------------------------------------------ */
@@ -729,9 +752,9 @@ function validate(raw, level) {
     if (!r || typeof r.jp !== "string" || typeof r.kana !== "string") continue;
     if (typeof r.en !== "string" || !r.en.trim()) continue;
     if (!catIds.includes(r.cat)) continue;
-    const pitch = Number.isInteger(r.pitch) ? r.pitch : 0;
+    const pitch = Number.isInteger(r.pitch) ? r.pitch : -1;
     const n = moras(r.kana).length;
-    if (pitch < 0 || pitch > n) continue;
+    if (pitch > n) continue;
     // Reject markup we can't render, and readings that aren't kana.
     if ((r.jp.match(/\[/g) || []).length !== (r.jp.match(/\]/g) || []).length) continue;
     if (!/^[\u3040-\u30FFー]+$/.test(r.kana)) continue;
@@ -987,6 +1010,8 @@ function App() {
   const [fetching, setFetching] = useState(false);
   const [fetchNote, setFetchNote] = useState("");
   const [paste, setPaste] = useState("");
+  const [levelWords, setLevelWords] = useState({});
+  const [loadingLevel, setLoadingLevel] = useState(false);
   const loaded = useRef(false);
   const { say, ok: ttsOk } = useSpeech();
 
@@ -1014,8 +1039,51 @@ function App() {
 
   const level = state ? state.settings.level : "N5";
 
+  // Pull in the deck for whichever level is being studied.
+  useEffect(() => {
+    if (levelWords[level]) return;
+    setLoadingLevel(true);
+    loadLevel(level).then((ws) => {
+      setLevelWords((m) => ({ ...m, [level]: ws }));
+      setLoadingLevel(false);
+    });
+  }, [level]);
+
+  // Card ids embed the meaning, so rebuilding the deck can orphan progress on
+  // words that are still there under a new gloss. Re-home those by reading,
+  // but only where the reading identifies exactly one word. Runs once per
+  // level, and only once both the deck and the saved progress are in hand.
+  const migrated = useRef({});
+  useEffect(() => {
+    const ws = levelWords[level];
+    if (!state || !ws || !ws.length || migrated.current[level]) return;
+    migrated.current[level] = true;
+    const byKana = {};
+    for (const w of ws) (byKana[w.kana] = byKana[w.kana] || []).push(w);
+    const live = new Set(ws.map((w) => w.id));
+    set((st) => {
+      let moved = 0;
+      const cards = { ...st.cards };
+      for (const id of Object.keys(st.cards)) {
+        if (live.has(id)) continue;
+        const kana = id.split(":")[1];
+        const hits = byKana[kana];
+        if (!hits || hits.length !== 1) continue;
+        const target = hits[0].id;
+        if (cards[target] && cards[target].seen) continue;
+        cards[target] = cards[id];
+        delete cards[id];
+        moved++;
+      }
+      return moved ? { ...st, cards } : st;
+    });
+  }, [state, levelWords, level]);
+
   // Everything we know about, deduplicated by written form plus reading.
-  const allWords = useMemo(() => mergeWords([SEED, bank]), [bank]);
+  const allWords = useMemo(
+    () => mergeWords([levelWords[level] || (level === "N5" ? SEED : []), bank]),
+    [bank, levelWords, level]
+  );
   const DECK = useMemo(() => allWords.filter((w) => w.level === level), [allWords, level]);
   const unlockedCount = state ? state.unlocked[level] ?? 2 : 2;
 
@@ -1158,7 +1226,7 @@ function App() {
       const got = parseWordJson(paste, level);
       if (!got.length) throw new Error("Nothing usable in that text");
       const before = allWords.length;
-      const merged = mergeWords([SEED, bank, got]);
+      const merged = mergeWords([levelWords[level] || [], bank, got]);
       const added = merged.length - before;
       const next = merged.filter((w) => w.fetched);
       setBank(next);
@@ -1482,9 +1550,14 @@ function App() {
             >
               <Furigana src={current.jp} size={58} />
 
-              {state.settings.showPitch && (
+              {state.settings.showPitch && current.pitch >= 0 && (
                 <div className="mt-5">
                   <PitchContour kana={current.kana} drop={current.pitch} traceKey={traceKey} />
+                </div>
+              )}
+              {state.settings.showPitch && current.pitch < 0 && (
+                <div className="mt-4" style={{ fontFamily: SANS, fontSize: 11, color: C.muted }}>
+                  Pitch accent not in the dataset for this word
                 </div>
               )}
 
@@ -1728,9 +1801,7 @@ function App() {
             <div className="rounded-xl px-4 py-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
               <Label>How this works</Label>
               <p className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
-New words come from Claude in the chat app: copy a prompt, paste
-                it into any Claude conversation, then paste the JSON back here.
-                Everything is checked before it's kept:
+                The deck is built from JMdict-derived sources with real pitch\n                accent data. To add beyond it, copy a prompt, paste it into any\n                Claude conversation, then paste the JSON back here. Imports are\n                checked before they're kept:
                 anything with a broken reading, an impossible pitch value or a
                 written form and reading already in your deck is discarded.
                 Readings and meanings are usually sound. Pitch accents and level
@@ -1858,8 +1929,8 @@ New words come from Claude in the chat app: copy a prompt, paste
                 {SEED.length} hand-written N5 words plus{" "}
                 {allWords.filter((w) => w.fetched).length} fetched ones, all
                 deduplicated by written form and reading. Pitch accents are worth
-                checking against OJAD before you commit them to memory. Progress is
-                saved in this device's browser storage.
+                checking against OJAD before you commit them to memory. Progress
+                is saved to your Claude account.
               </p>
             </div>
 

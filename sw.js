@@ -20,7 +20,11 @@ self.addEventListener("install", (e) => {
   e.waitUntil(
     (async () => {
       const shell = await caches.open(SHELL);
-      await shell.add("./index.html").catch(() => {});
+      await Promise.all(
+        ["./index.html", "./cats.js", "./words-n5.js"].map((u) =>
+          shell.add(u).catch(() => {})
+        )
+      );
       const lib = await caches.open(LIB);
       await Promise.all(
         LIBS.map(async (u) => {
@@ -56,7 +60,10 @@ self.addEventListener("fetch", (e) => {
 
   if (url.pathname.startsWith("/api/")) return;
 
-  const isShell = req.mode === "navigate" || url.pathname.endsWith("/index.html");
+  const isShell =
+    req.mode === "navigate" ||
+    url.pathname.endsWith("/index.html") ||
+    /\/(cats|words-n[1-5])\.js$/.test(url.pathname);
 
   if (isShell) {
     e.respondWith(
@@ -64,11 +71,11 @@ self.addEventListener("fetch", (e) => {
         .then((res) => {
           if (res && res.status === 200) {
             const copy = res.clone();
-            caches.open(SHELL).then((c) => c.put("./index.html", copy));
+            caches.open(SHELL).then((c) => c.put(req, copy));
           }
           return res;
         })
-        .catch(async () => (await caches.match("./index.html")) || Response.error())
+        .catch(async () => (await caches.match(req)) || Response.error())
     );
     return;
   }
