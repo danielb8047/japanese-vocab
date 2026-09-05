@@ -594,7 +594,7 @@ function grade(card, g) {
 
 const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE));
 
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
 // Level decks are separate files so a phone only downloads what it studies.
@@ -888,7 +888,9 @@ function useSpeech() {
 /* ------------------------------------------------------------------ */
 /*  UI PIECES                                                          */
 /* ------------------------------------------------------------------ */
-function Furigana({ src, size = 64, showRuby = true }) {
+// Colours are props because this renders on two very different backgrounds:
+// the paper-coloured flashcard and the dark browse rows.
+function Furigana({ src, size = 64, showRuby = true, color = C.ink, rubyColor = C.indigo }) {
   const parts = useMemo(() => parseFurigana(src), [src]);
   return (
     <span
@@ -896,7 +898,7 @@ function Furigana({ src, size = 64, showRuby = true }) {
         fontFamily: JP_FACE,
         fontSize: size,
         lineHeight: 1.5,
-        color: C.ink,
+        color,
         display: "inline-block",
       }}
     >
@@ -904,7 +906,7 @@ function Furigana({ src, size = 64, showRuby = true }) {
         p.r && showRuby ? (
           <ruby key={i} style={{ rubyAlign: "center" }}>
             {p.t}
-            <rt style={{ fontSize: size * 0.3, letterSpacing: "0.04em", color: C.indigo }}>
+            <rt style={{ fontSize: size * 0.3, letterSpacing: "0.04em", color: rubyColor }}>
               {p.r}
             </rt>
           </ruby>
@@ -1861,11 +1863,12 @@ function App() {
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
-                          <div style={{ color: C.paper }}>
-                            <span style={{ fontFamily: JP_FACE, fontSize: 19 }}>
-                              <Furigana src={w.jp} size={19} />
-                            </span>
-                          </div>
+                          <Furigana
+                            src={w.jp}
+                            size={19}
+                            color={C.paper}
+                            rubyColor={C.indigoLt}
+                          />
                           <div className="mt-1" style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
                             {w.en}
                           </div>

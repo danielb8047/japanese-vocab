@@ -12,6 +12,12 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.4.1 — fix
+
+- Japanese text was rendering in dark ink on the dark browse rows, making it
+  unreadable. The Furigana component had the flashcard's colours baked in;
+  it now takes them as props, so it works on both backgrounds.
+
 ## 1.4.0 — browse your words, and see your days
 
 - **Tap any unlocked category to browse its words.** Each word shows a mastery
