@@ -19,6 +19,7 @@ Output: cats.js and words-n{1..5}.js
 import csv, json, os, re, sys
 from collections import defaultdict
 from usage_notes import USAGE_NOTES
+from essential_expressions import ESSENTIALS
 
 KANJI = re.compile(r"[\u4E00-\u9FAF\u3005]")
 KANA_ONLY = re.compile(r"^[\u3040-\u30FF\u30FCー]+$")
@@ -334,6 +335,13 @@ def gather():
                 e = entries[(expr, reading)]
                 e["forms"] = e.get("forms", set()) | {"anki"}
                 e["levels"][lv].add("anki")
+                for tag in (row.get("tags") or "").split():
+                    if tag.startswith("Genki_Ln."):
+                        try:
+                            n = int(tag.split(".")[1])
+                            e["genki"] = min(e.get("genki", 99), n)
+                        except ValueError:
+                            pass
                 by_reading[reading][lv].add("anki")
                 for s in split_senses(row.get("meaning") or ""):
                     if s not in e["senses"]:
@@ -470,6 +478,13 @@ def main():
         lv, votes, total = resolve_level(pooled_levels(expr, reading, e))
         if not lv:
             continue
+        # A second, independent signal. The three JLPT lists share an ancestor,
+        # so their agreement proves little; a textbook does not. Words taught in
+        # Genki I (lessons 1-12, the first year of study) are capped at N4 —
+        # 教科書 and 単語 had been sitting at N3.
+        if e.get("genki", 99) <= 12 and LEVELS.index(lv) > LEVELS.index("N4"):
+            lv = "N4"
+            stats["genki_capped"] += 1
         senses = [s for s in e["senses"] if s and "10^" not in s][:6]
         if not senses:
             stats["dropped_no_meaning"] += 1
@@ -516,11 +531,49 @@ def main():
             stats[lv] += 1
             stats[f"agree_{votes}"] += 1
 
+    # Greetings and set phrases, written by hand. The lists either omit them or
+    # file them oddly — すみません at N1, いただきます under Food — so any list
+    # entry with the same reading is dropped in favour of the curated one.
+    ess_readings = {k for _, k, _, _, _ in ESSENTIALS}
+    before = len(out)
+    out = [r for r in out if r["kana"] not in ess_readings]
+    stats["essentials_replaced"] += before - len(out)
+    for jp_ess, kana_ess, en_ess, lv_ess, note_ess in ESSENTIALS:
+        surf_ess = re.sub(r"\[[^\]]*\]", "", jp_ess)
+        pitch = ap.get((surf_ess, kana_ess))
+        psrc = "exact"
+        if pitch is None:
+            pitch = ar.get(kana_ess)
+            psrc = "reading"
+        if pitch is None or pitch > len(moras(kana_ess)):
+            pitch = generate_pitch(surf_ess, kana_ess, en_ess)
+            psrc = "generated"
+        rec = {
+            "id": f"grt:{kana_ess}:{en_ess}",
+            "cat": "grt",
+            "jp": jp_ess,
+            "kana": kana_ess,
+            "en": en_ess,
+            "pitch": pitch,
+            "ps": psrc,
+            "level": lv_ess,
+            "src": 0,                  # curated, not voted
+            "_forms": ["curated"],
+        }
+        if note_ess:
+            rec["note"] = note_ess
+        out.append(rec)
+        stats["essentials_added"] += 1
+
     # 大変 and たいへん are one word listed twice, once in kanji and once in
     # kana. Merge them on reading plus leading sense. Which spelling to keep is
     # not obvious — 大変 is normally written in kanji but とても normally is not
     # — so prefer whichever form the most carefully curated list used, and fall
     # back to the kanji form.
+    # Keyed on reading plus the exact leading sense, deliberately narrow. A
+    # looser rule (merge when any meaning word overlaps) was tried and wrongly
+    # merged いつか "someday" into 五日 "the fifth" via the word "day". Pairs the
+    # narrow rule misses, like 下さい / ください, are fixed as curated entries.
     kana_pairs = defaultdict(list)
     for r in out:
         kana_pairs[(r["kana"], r["en"].split(",")[0].strip().lower())].append(r)
@@ -532,6 +585,8 @@ def main():
         withk = [r for r in group if r not in plain]
         if not plain or not withk:
             continue
+        if any("curated" in r.get("_forms", ()) for r in plain + withk):
+            continue                     # hand-written entries are never merged away
         anki_plain = any("anki" in r.get("_forms", ()) for r in plain)
         anki_kanji = any("anki" in r.get("_forms", ()) for r in withk)
         losers = withk if (anki_plain and not anki_kanji) else plain

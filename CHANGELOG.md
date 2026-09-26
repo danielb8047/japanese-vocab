@@ -12,6 +12,24 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.6.0 — greetings, set phrases, and a textbook check
+
+- **Greetings and set phrases are now all at N5.** The JLPT reconstructions
+  are word lists, and phrases fell through: of 29 expressions every course
+  teaches in its first weeks, 13 were missing entirely — ありがとうございます,
+  おはようございます, よろしくお願いします — and the rest were scattered, with
+  こんにちは at N3 and すみません at N1. A hand-written set of 41 now replaces
+  them, most with a note on when to use them (いってきます and its reply
+  いってらっしゃい, ただいま and おかえりなさい). N5 Greetings went from 5 words to 36.
+- **The Genki textbook is now a second check on levels.** The three JLPT lists
+  overlap by about 84% — they share an ancestor, so their agreement proved less
+  than it seemed. Genki is independent: words it teaches in its first year
+  (lessons 1–12) are now kept at N4 or below. 31 words moved, including 教科書
+  "textbook" and 単語 "word", which had been at N3.
+- ください and 下さい were one word listed twice; now a single entry.
+- Your progress carries over. Where a list entry was replaced by a curated one
+  with the same reading, its history is moved across automatically.
+
 ## 1.5.1 — word levels corrected
 
 - **Fixed: many words were at the wrong JLPT level.** Level votes from the

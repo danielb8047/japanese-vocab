@@ -138,16 +138,19 @@ launch, provided sync is on.
 
 ## The vocabulary deck
 
-8,378 words, built by cross-referencing three independent JLPT reconstructions
-rather than trusting any one of them.
+8,399 words. The base is three community reconstructions of the old JLPT lists
+(no official list has existed since 2010). They largely share an ancestor, so
+two further sources correct their known weak spots: a hand-written set of
+greetings and set phrases, which word lists omit, and the Genki textbook, whose
+first-year vocabulary is kept at N4 or below.
 
 | Level | Words | Pitch from real data |
 |---|---|---|
-| N5 | 718 | 89% |
-| N4 | 711 | 86% |
-| N3 | 2,161 | 92% |
-| N2 | 1,615 | 88% |
-| N1 | 3,173 | 91% |
+| N5 | 749 | 86% |
+| N4 | 748 | 83% |
+| N3 | 2,136 | 92% |
+| N2 | 1,596 | 88% |
+| N1 | 3,170 | 91% |
 
 Only the level you are studying downloads.
 
