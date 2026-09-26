@@ -138,16 +138,16 @@ launch, provided sync is on.
 
 ## The vocabulary deck
 
-8,528 words, built by cross-referencing three independent JLPT reconstructions
+8,378 words, built by cross-referencing three independent JLPT reconstructions
 rather than trusting any one of them.
 
-| Level | Words | Pitch from real data | All three lists agree |
-|---|---|---|---|
-| N5 | 921 | 91% | |
-| N4 | 838 | 87% | 94% of the deck overall |
-| N3 | 1,981 | 91% | |
-| N2 | 1,976 | 88% | |
-| N1 | 3,079 | 89% | |
+| Level | Words | Pitch from real data |
+|---|---|---|
+| N5 | 718 | 89% |
+| N4 | 711 | 86% |
+| N3 | 2,161 | 92% |
+| N2 | 1,615 | 88% |
+| N1 | 3,173 | 91% |
 
 Only the level you are studying downloads.
 

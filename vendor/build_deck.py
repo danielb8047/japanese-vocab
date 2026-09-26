@@ -387,19 +387,23 @@ SOURCE_RANK = ["anki", "openjlpt", "bluskyo"]
 
 
 def resolve_level(levels):
-    """Majority vote across the lists. On a tie, defer to the most carefully
-    curated list rather than to the easiest level — resolving ties downward
-    piled genuinely harder vocabulary into N5."""
+    """The earliest level any list places the word at.
+
+    The lists genuinely disagree — one puts 九 at N5, another at N3, a third
+    at both — and a learner is better served meeting a word early than never.
+    This rule gives N5 about 790 words, in line with the ~800 usually cited.
+    (An earlier attempt at this rule inflated N5 to 1,647, but the cause was a
+    source whose levels were read backwards and votes pooled across unrelated
+    homophones, both since fixed — not the rule itself.)
+
+    Returns (level, sources listing it at that level, total sources)."""
     if not levels:
         return None, 0, 0
     total = len(set().union(*levels.values()))
-    ranked = sorted(
-        levels.items(),
-        key=lambda kv: (-len(kv[1]),
-                        min((SOURCE_RANK.index(s) for s in kv[1]), default=9)),
-    )
-    best, srcs = ranked[0]
-    return best, len(srcs), total
+    for lv in LEVELS:
+        if levels.get(lv):
+            return lv, len(levels[lv]), total
+    return None, 0, 0
 
 
 # ---------------------------------------------------------------- pitch accent
@@ -429,15 +433,44 @@ def generate_pitch(expr, reading, gloss):
 def main():
     ap, ar = load_accents("kanjium-master/data/source_files/raw/accents.txt")
     furi = load_furigana("JmdictFurigana.txt")
-    entries, by_reading = gather()
+    entries, _ = gather()
+
+    # Votes are pooled across spellings of the SAME word — ある and 在る,
+    # 明るい and 明かるい — but never across words that merely share a reading.
+    # Pooling by reading alone gave 九 the votes of 急 and 級, and 四 those of
+    # 市 and 死, dragging the numbers up to N3 and N4.
+    stop = {"the", "and", "for", "one", "with", "someone", "something"}
+    gloss_words = lambda senses: {
+        w for t in senses for w in re.findall(r"[a-z]{3,}", t.lower())} - stop
+    by_read = defaultdict(list)
+    for (ex, rd), e in entries.items():
+        by_read[rd].append((ex, e))
+
+    def pooled_levels(ex, rd, e):
+        out = defaultdict(set)
+        for lv, srcs in e["levels"].items():
+            out[lv] |= srcs
+        mine = gloss_words(e["senses"])
+        kx = frozenset(KANJI.findall(ex))
+        for ex2, e2 in by_read[rd]:
+            if ex2 == ex:
+                continue
+            same = bool(kx) and kx == frozenset(KANJI.findall(ex2))
+            if not same and (ex == rd or ex2 == rd):
+                other = gloss_words(e2["senses"])
+                same = bool(mine and other and mine & other)
+            if same:
+                for lv, srcs in e2["levels"].items():
+                    out[lv] |= srcs
+        return out
 
     stats = defaultdict(int)
     out = []
     for (expr, reading), e in entries.items():
-        lv, votes, total = resolve_level(by_reading.get(reading) or e["levels"])
+        lv, votes, total = resolve_level(pooled_levels(expr, reading, e))
         if not lv:
             continue
-        senses = [s for s in e["senses"] if s][:6]
+        senses = [s for s in e["senses"] if s and "10^" not in s][:6]
         if not senses:
             stats["dropped_no_meaning"] += 1
             continue

@@ -12,6 +12,22 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.5.1 — word levels corrected
+
+- **Fixed: many words were at the wrong JLPT level.** Level votes from the
+  three source lists were pooled by *reading*, so unrelated words that sound
+  alike shared votes. 九 (きゅう) took votes from 急 and 級 and landed in N4;
+  四 took votes from 市 and 死; 父 ended up in N1. Votes are now pooled only
+  between spellings of the same word (ある / 在る), never across homophones.
+- The same bug had pulled about 180 words *into* N5 that don't belong there,
+  by sharing a reading with a genuine N5 word — 舌 "tongue" via 下, 城
+  "castle" via 白, 酸 "acid" via 三. They're now at their proper levels.
+- Where the lists genuinely disagree — one puts 九 at N5, another at N3 — a
+  word now goes to the earliest level any list gives it. N5 comes to 718
+  words, in line with the usual figure for that level.
+- 789 words changed level in total. Your progress on every word is kept; a
+  word that moved simply appears in reviews for its new level instead.
+
 ## 1.5.0 — the whole dictionary, and two fixes
 
 - **Browse every word from the Words screen** — all five levels, every
