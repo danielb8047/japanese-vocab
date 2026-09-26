@@ -12,6 +12,29 @@ Numbering is `major.minor.patch`:
 
 ---
 
+## 1.5.0 — the whole dictionary, and two fixes
+
+- **Browse every word from the Words screen** — all five levels, every
+  category, locked ones included. Pick a level, tap a category, and see its
+  words with their mastery. Browsing is separate from studying: looking at N3
+  doesn't change your study level, and locked categories are marked as not yet
+  in your reviews.
+- **Search** within a level by kanji, kana or English.
+- Large categories load in pages of 150 with a Show more button, since N1
+  categories run to several hundred words.
+- **Fixed: review buttons could disappear off the bottom of the screen.** A
+  card carrying a usage note, comparison chips and an example sentence could
+  be taller than the phone, pushing Again / Hard / Good / Easy out of reach.
+  They are now pinned to the bottom during review, and the sync bar steps
+  aside until the session ends.
+- **Fixed: 49 cards showed a usage note belonging to a different word.** Notes
+  were matched by reading as a fallback, so 個々 inherited ここ's "this place"
+  note and 着く (to arrive) was described as "switches on". Reading-keyed notes
+  now apply only to words written in kana. Genuine kanji spellings of the same
+  word — 在る, 居る, 余り — have their own explicit notes.
+- The review header showed "N5" whatever level you were on; it now shows the
+  card's actual level.
+
 ## 1.4.1 — fix
 
 - Japanese text was rendering in dark ink on the dark browse rows, making it

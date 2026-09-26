@@ -84,7 +84,8 @@ per-card merging would be the fix if it ever bites.
 - **Browse** — tap a category on the home screen to see every word in it with
   its mastery bar and due date.
 - **Daily progress** — how much you did each day and how you graded it.
-- **Words** — switch level, or import extra vocabulary.
+- **Words** — switch study level, browse or search the entire dictionary
+  across all levels, or import extra vocabulary.
 - **Setup** — audio, pitch display, daily new-word limit, backup, version.
 
 ## Versions

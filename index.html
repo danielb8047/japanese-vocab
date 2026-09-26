@@ -25,6 +25,10 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+  /* During review the answer buttons are pinned to the bottom; the sync bar
+     would sit on top of them, so it steps aside until the session ends. */
+  body[data-view="review"] #syncwrap,
+  body[data-view="review"] #updatebar { display: none !important; }
   #syncbar { color: #7787A3; flex: 1; }
   #updatebar {
     display: none; position: sticky; bottom: 0; z-index: 20;
@@ -594,7 +598,7 @@ function grade(card, g) {
 
 const cardMastery = (c) => (!c || !c.seen ? 0 : Math.min(1, c.interval / MATURE));
 
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.5.0";
 const LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
 // Level decks are separate files so a phone only downloads what it studies.
@@ -1056,6 +1060,10 @@ function App() {
   const [paste, setPaste] = useState("");
   const [levelWords, setLevelWords] = useState({});
   const [browseCat, setBrowseCat] = useState(null);
+  const [browseLevel, setBrowseLevel] = useState(null);   // null = the study level
+  const [browseFrom, setBrowseFrom] = useState("home");
+  const [browseLimit, setBrowseLimit] = useState(150);
+  const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("mastery");
   const [loadingLevel, setLoadingLevel] = useState(false);
   const loaded = useRef(false);
@@ -1084,6 +1092,25 @@ function App() {
   const set = (fn) => setState((s) => (s ? fn(s) : s));
 
   const level = state ? state.settings.level : "N5";
+  const bLevel = browseLevel || level;
+
+  useEffect(() => {
+    if (typeof document !== "undefined") document.body.dataset.view = view;
+  }, [view]);
+
+  // Browsing another level fetches its word file on demand.
+  useEffect(() => {
+    if (!bLevel || levelWords[bLevel]) return;
+    loadLevel(bLevel).then((ws) => setLevelWords((m) => ({ ...m, [bLevel]: ws })));
+  }, [bLevel]);
+
+  const openBrowse = (catId, from, lv) => {
+    setBrowseCat(catId);
+    setBrowseFrom(from);
+    setBrowseLevel(lv || null);
+    setBrowseLimit(150);
+    setView("browse");
+  };
 
   // Pull in the deck for whichever level is being studied.
   useEffect(() => {
@@ -1567,8 +1594,7 @@ function App() {
                   key={c.id}
                   onClick={() => {
                     if (c.locked || !c.count) return;
-                    setBrowseCat(c.id);
-                    setView("browse");
+                    openBrowse(c.id, "home", null);
                   }}
                   role={c.locked ? undefined : "button"}
                   className="rounded-xl px-4 py-3 flex items-center gap-3"
@@ -1608,7 +1634,7 @@ function App() {
         {view === "review" && current && (
           <div style={{ animation: "jpRise .3s ease both" }}>
             <div className="flex items-center justify-between mb-3">
-              <Label>{CATS.find((c) => c.id === current.cat).en} · N5</Label>
+              <Label>{CATS.find((c) => c.id === current.cat).en} · {current.level || level}</Label>
               <div style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>
                 {queue.length} left
               </div>
@@ -1718,8 +1744,19 @@ function App() {
               </div>
             </div>
 
+            {/* Pinned to the bottom of the screen: a card carrying a note, a
+                comparison and an example sentence can be taller than the phone,
+                and in normal flow that pushed these buttons out of reach. */}
+            <div
+              className="sticky bottom-0 -mx-5 px-5 pt-5 mt-2"
+              style={{
+                zIndex: 15,
+                paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+                background: `linear-gradient(to top, ${C.ink} 78%, rgba(19,30,51,0))`,
+              }}
+            >
             {revealed ? (
-              <div className="grid grid-cols-4 gap-2 mt-4">
+              <div className="grid grid-cols-4 gap-2">
                 {[
                   ["Again", C.brick, 0],
                   ["Hard", C.gold, 1],
@@ -1746,7 +1783,7 @@ function App() {
             ) : (
               <button
                 onClick={() => setRevealed(true)}
-                className="w-full rounded-xl py-4 mt-4"
+                className="w-full rounded-xl py-4"
                 style={{ background: C.panel, color: C.paper, fontFamily: SANS, fontSize: 15, fontWeight: 600 }}
               >
                 Show meaning
@@ -1771,6 +1808,7 @@ function App() {
               >
                 End session
               </button>
+            </div>
             </div>
           </div>
         )}
@@ -1808,7 +1846,13 @@ function App() {
         {/* ---------------- BROWSE A CATEGORY ---------------- */}
         {view === "browse" && browseCat && (() => {
           const cat = CATS.find((c) => c.id === browseCat);
-          let words = DECK.filter((w) => w.cat === browseCat);
+          const source =
+            bLevel === level
+              ? DECK
+              : mergeWords([levelWords[bLevel] || [], bank]).filter((w) => w.level === bLevel);
+          let words = source.filter((w) => w.cat === browseCat);
+          const catIndex = CATS.findIndex((c) => c.id === browseCat);
+          const lockedHere = catIndex >= (state.unlocked[bLevel] ?? 2);
           words = words.slice().sort((a, b) => {
             if (sortBy === "mastery")
               return cardMastery(state.cards[b.id]) - cardMastery(state.cards[a.id]);
@@ -1819,18 +1863,23 @@ function App() {
           return (
             <div style={{ animation: "jpRise .3s ease both" }}>
               <button
-                onClick={() => setView("home")}
+                onClick={() => setView(browseFrom)}
                 className="mb-4"
                 style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}
               >
-                ‹ All categories
+                ‹ {browseFrom === "library" ? "Words" : "All categories"}
               </button>
 
               <div className="rounded-xl px-4 py-4 mb-4" style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}>
                 <div style={{ fontFamily: JP_FACE, fontSize: 20, color: C.paper }}>{cat.jp}</div>
                 <div className="mt-1" style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}>
-                  {cat.en} · {words.length} words · {learned} started
+                  {bLevel} · {cat.en} · {words.length} words · {learned} started
                 </div>
+                {lockedHere && (
+                  <div className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.gold }}>
+                    Not unlocked for review yet — you can look, but these won't come up in sessions.
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 mb-3">
@@ -1852,7 +1901,10 @@ function App() {
               </div>
 
               <div className="space-y-2">
-                {words.map((w) => {
+                {!levelWords[bLevel] && bLevel !== level && (
+                  <div style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}>Loading {bLevel}…</div>
+                )}
+                {words.slice(0, browseLimit).map((w) => {
                   const card = state.cards[w.id];
                   const m = cardMastery(card);
                   return (
@@ -1903,6 +1955,15 @@ function App() {
                   );
                 })}
               </div>
+              {words.length > browseLimit && (
+                <button
+                  onClick={() => setBrowseLimit((n) => n + 150)}
+                  className="w-full rounded-xl py-3 mt-3"
+                  style={{ border: `1px solid ${C.line}`, color: C.indigoLt, fontFamily: SANS, fontSize: 13 }}
+                >
+                  Show more · {words.length - browseLimit} to go
+                </button>
+              )}
             </div>
           );
         })()}
@@ -2131,6 +2192,137 @@ function App() {
                 {fetchNote}
               </div>
             )}
+
+            <div className="pt-2">
+              <Label>Browse every word</Label>
+              <p className="mt-2" style={{ fontFamily: SANS, fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+                The whole dictionary, locked categories and other levels
+                included. Browsing doesn't change what you're studying.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-5 gap-2">
+              {LEVELS.map((l) => (
+                <button
+                  key={l}
+                  onClick={() => { setBrowseLevel(l); setSearch(""); }}
+                  className="rounded-lg py-2"
+                  style={{
+                    border: `1px solid ${l === bLevel ? C.indigoLt : C.line}`,
+                    color: l === bLevel ? C.indigoLt : C.muted,
+                    fontFamily: MONO,
+                    fontSize: 12,
+                  }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${bLevel} — kanji, kana or English`}
+              className="w-full rounded-xl px-3 py-3"
+              style={{ background: C.inkSoft, border: `1px solid ${C.line}`, color: C.paper, fontFamily: SANS, fontSize: 14 }}
+            />
+
+            {(() => {
+              const all =
+                bLevel === level
+                  ? DECK
+                  : mergeWords([levelWords[bLevel] || [], bank]).filter((w) => w.level === bLevel);
+              if (!all.length)
+                return (
+                  <div style={{ fontFamily: SANS, fontSize: 13, color: C.muted }}>Loading {bLevel}…</div>
+                );
+
+              const q = search.trim().toLowerCase();
+              if (q) {
+                const hits = all.filter(
+                  (w) =>
+                    surface(w.jp).includes(search.trim()) ||
+                    w.kana.includes(search.trim()) ||
+                    w.en.toLowerCase().includes(q)
+                );
+                return (
+                  <div className="space-y-2">
+                    <div style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
+                      {hits.length} match{hits.length === 1 ? "" : "es"}
+                      {hits.length > 60 ? " — showing the first 60" : ""}
+                    </div>
+                    {hits.slice(0, 60).map((w) => {
+                      const m = cardMastery(state.cards[w.id]);
+                      const catName = (CATS.find((c) => c.id === w.cat) || {}).en;
+                      return (
+                        <div
+                          key={w.id}
+                          className="rounded-xl px-4 py-3 flex items-center gap-3"
+                          style={{ background: C.inkSoft, border: `1px solid ${C.line}` }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <Furigana src={w.jp} size={18} color={C.paper} rubyColor={C.indigoLt} />
+                            <div style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}>
+                              {w.en}
+                            </div>
+                            <div className="mt-1" style={{ fontFamily: MONO, fontSize: 9, color: C.muted, letterSpacing: "0.08em" }}>
+                              {catName}
+                              {state.cards[w.id] && state.cards[w.id].seen ? ` · ${Math.round(m * 100)}%` : ""}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => say(w.kana, state.settings.rate)}
+                            className="rounded-full px-2 py-1 shrink-0"
+                            style={{ border: `1px solid ${C.line}`, color: C.indigoLt, fontSize: 12 }}
+                            aria-label={`Play ${w.kana}`}
+                          >
+                            ▶
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              const unlockedHere = state.unlocked[bLevel] ?? 2;
+              return (
+                <div className="space-y-2">
+                  {CATS.map((c, i) => {
+                    const n = all.filter((w) => w.cat === c.id).length;
+                    if (!n) return null;
+                    const locked = i >= unlockedHere;
+                    return (
+                      <div
+                        key={c.id}
+                        role="button"
+                        onClick={() => openBrowse(c.id, "library", bLevel)}
+                        className="rounded-xl px-4 py-3 flex items-center gap-3"
+                        style={{ background: C.inkSoft, border: `1px solid ${C.line}`, cursor: "pointer" }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div style={{ fontFamily: JP_FACE, fontSize: 15, color: C.paper }}>
+                            {c.jp}
+                            <span style={{ fontFamily: SANS, fontSize: 12, color: C.muted }}> · {c.en}</span>
+                          </div>
+                        </div>
+                        {locked && (
+                          <span style={{ fontFamily: MONO, fontSize: 9, letterSpacing: "0.1em", color: C.muted }}>
+                            LOCKED
+                          </span>
+                        )}
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: C.indigoLt }}>{n}</span>
+                        <span style={{ color: C.muted, fontSize: 16, lineHeight: 1 }}>›</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            <div className="pt-4">
+              <Label>Add your own words</Label>
+            </div>
 
             <Label>Fill a specific category</Label>
             <div className="space-y-2">
